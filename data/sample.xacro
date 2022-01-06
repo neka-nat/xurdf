@@ -1,0 +1,11 @@
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Define a macro with parameters prefix, parent, and reflect - partially with default values -->
+  <xacro:macro name="arm" params="prefix:='' parent reflect:=1">
+    <xacro:property name="prefix_" value='${prefix + "_" if prefix else ""}' />
+    <upperarm prefix="${prefix}" reflect="${reflect}" parent="${parent}" />
+    <forearm prefix="${prefix}" reflect="${reflect}" parent="${prefix_}elbow" />
+  </xacro:macro>
+  <!-- Instantiate the macro with different parameters -->
+  <xacro:arm prefix="left" reflect="1" parent="torso" />
+  <xacro:arm prefix="right" reflect="-1" parent="torso" />
+</robot>

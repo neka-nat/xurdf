@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "xurdf",
+    "xurdf-python",
+]
