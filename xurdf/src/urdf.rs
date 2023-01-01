@@ -258,7 +258,7 @@ fn parse_joint(node: roxmltree::Node) -> Result<Joint> {
     })
 }
 
-pub fn parse_from_string(xml: &String) -> Result<Robot> {
+pub fn parse_urdf_from_string(xml: &String) -> Result<Robot> {
     let doc = roxmltree::Document::parse(xml)?;
     let node = doc.root_element();
     let links = node
@@ -289,6 +289,6 @@ pub fn parse_from_string(xml: &String) -> Result<Robot> {
     })
 }
 
-pub fn parse_from_file<P: AsRef<Path>>(path: P) -> Result<Robot> {
-    parse_from_string(&std::fs::read_to_string(path)?)
+pub fn parse_urdf_from_file<P: AsRef<Path>>(path: P) -> Result<Robot> {
+    parse_urdf_from_string(&std::fs::read_to_string(path)?)
 }

@@ -1,5 +1,6 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <!-- Define a macro with parameters prefix, parent, and reflect - partially with default values -->
+  <xacro:property name="test" value="1"/>
   <xacro:macro name="arm" params="prefix:='' parent reflect:=1">
     <xacro:property name="prefix_" value='${prefix + "_" if prefix else ""}' />
     <upperarm prefix="${prefix}" reflect="${reflect}" parent="${parent}" />
