@@ -2,7 +2,7 @@
   <!-- Define a macro with parameters prefix, parent, and reflect - partially with default values -->
   <xacro:property name="test" value="1"/>
   <xacro:macro name="arm" params="prefix:='' parent reflect:=1">
-    <xacro:property name="prefix_" value='${prefix + "_" if prefix else ""}' />
+    <xacro:property name="prefix_" value='${prefix}_' />
     <upperarm prefix="${prefix}" reflect="${reflect}" parent="${parent}" />
     <forearm prefix="${prefix}" reflect="${reflect}" parent="${prefix_}elbow" />
   </xacro:macro>

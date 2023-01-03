@@ -1,3 +1,4 @@
+use super::eval::*;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::Path;
@@ -6,16 +7,12 @@ use xmltree::{Element, XMLNode};
 const XACRO_PREFIX: &str = "xacro";
 
 #[derive(Clone, Debug)]
-struct PropertyValue {
-    raw_value: String,
-}
-
-#[derive(Clone, Debug)]
 struct Macro {
     params: Vec<String>,
     body: Element,
 }
 
+#[derive(Debug)]
 struct Context {
     properties: HashMap<String, PropertyValue>,
     macros: HashMap<String, Macro>,
@@ -29,10 +26,7 @@ impl Context {
             Some(_p) => {}
             None => {
                 for (name, val) in elem.attributes.iter() {
-                    let mut new_value = val.clone();
-                    for (k, v) in self.properties.iter() {
-                        new_value = new_value.replace(&format!("${{{}}}", k), &v.raw_value);
-                    }
+                    let new_value = eval_text(val, &self.properties);
                     new_elem.attributes.insert(name.clone(), new_value);
                 }
             }
@@ -47,8 +41,12 @@ impl Context {
                         (XACRO_PREFIX, "property") => {
                             let name = node.attributes["name"].clone();
                             let value = node.attributes["value"].clone();
-                            self.properties
-                                .insert(name, PropertyValue { raw_value: value });
+                            self.properties.insert(
+                                name,
+                                PropertyValue {
+                                    raw_value: eval_text(&value, &self.properties),
+                                },
+                            );
                         }
                         (XACRO_PREFIX, "macro") => {
                             let name = node.attributes["name"].clone();
@@ -87,7 +85,7 @@ impl Context {
             local_context.properties.insert(
                 k.clone(),
                 PropertyValue {
-                    raw_value: v.clone(),
+                    raw_value: eval_text(v, &self.properties),
                 },
             );
         });
