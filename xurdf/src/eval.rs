@@ -19,8 +19,8 @@ fn remove_quotation_marks(s: &str) -> &str {
 pub fn eval_text(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> String {
     let mut context = HashMapContext::new();
     for (name, value) in symbol_map.iter() {
-        let parsed_value = value.raw_value.parse::<f64>().ok();
-        if let Some(v) = parsed_value {
+        let parsed_value = value.raw_value.parse::<f64>();
+        if let Ok(v) = parsed_value {
             context.set_value(name.clone(), Value::from(v));
         } else {
             context.set_value(name.clone(), Value::from(value.raw_value.clone()));
@@ -32,8 +32,8 @@ pub fn eval_text(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> String
         match token.0 {
             TokenType::Text => result.push(token.1),
             TokenType::Expr => {
-                let expr = eval_with_context(&token.1, &context).ok();
-                if let Some(e) = expr {
+                let expr = eval_with_context(&token.1, &context);
+                if let Ok(e) = expr {
                     result.push(remove_quotation_marks(&e.to_string()).to_owned());
                 } else {
                     result.push(s.to_owned());

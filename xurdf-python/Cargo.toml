@@ -11,9 +11,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 xurdf = { path = "../xurdf" }
-nalgebra = "0.31.0"
-numpy = "0.17.2"
-ndarray = "0.15.6"
 
 [dependencies.pyo3]
 version = "0.17.1"
