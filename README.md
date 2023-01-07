@@ -8,4 +8,13 @@ Parse URDF and Xacro.
 * Written by Rust
 * Python bindings
 
-## Benchmarks
+## Supported Xacro tags
+
+- [x] property
+- [ ] property block
+- [x] macro
+- [ ] include
+- [ ] if/unless
+- [ ] rospack command
+- [ ] Yaml
+- [ ] element/attribute
