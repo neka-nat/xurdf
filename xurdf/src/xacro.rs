@@ -8,7 +8,7 @@ const XACRO_PREFIX: &str = "xacro";
 
 #[derive(Clone, Debug)]
 struct Macro {
-    params: Vec<String>,
+    params_map: HashMap<String, Option<String>>,
     body: Element,
 }
 
@@ -51,11 +51,10 @@ impl Context {
                         (XACRO_PREFIX, "macro") => {
                             let name = node.attributes["name"].clone();
                             let params = node.attributes["params"].clone();
-                            let params = params.split_whitespace().map(|s| s.to_string()).collect();
                             self.macros.insert(
                                 name,
                                 Macro {
-                                    params,
+                                    params_map: Context::parse_macro_args(&params),
                                     body: node.clone(),
                                 },
                             );
@@ -81,20 +80,39 @@ impl Context {
             macros: self.macros.clone(),
         };
         let this_macro = &self.macros[name];
-        node.attributes.iter().for_each(|(k, v)| {
-            local_context.properties.insert(
-                k.clone(),
-                PropertyValue {
-                    raw_value: eval_text(v, &self.properties),
-                },
-            );
+        this_macro.params_map.iter().for_each(|(k, v)| {
+            if node.attributes.contains_key(k) {
+                local_context.properties.insert(
+                    k.clone(),
+                    PropertyValue {
+                        raw_value: eval_text(&node.attributes[k], &self.properties),
+                    },
+                );
+            } else if let Some(v) = v {
+                local_context.properties.insert(
+                    k.clone(),
+                    PropertyValue {
+                        raw_value: eval_text(v, &self.properties),
+                    },
+                );
+            }
         });
         let new_elem = local_context.parse_and_write_xacro(&this_macro.body);
         new_elem.children
     }
+    fn parse_macro_args(s: &str) -> HashMap<String, Option<String>> {
+        let mut map = HashMap::new();
+        for arg in s.split_whitespace() {
+            let mut iter = arg.splitn(2, ":=");
+            let key = iter.next().unwrap();
+            let value = iter.next().iter().flat_map(|s| Some(s.to_string())).next();
+            map.insert(key.to_string(), value);
+        }
+        map
+    }
 }
 
-pub fn parse_xacro_from_string(xml: &String) -> Result<String> {
+pub fn parse_xacro_from_string(xml: &str) -> Result<String> {
     let elem = Element::parse(xml.as_bytes())?;
     let mut context = Context {
         properties: HashMap::new(),
