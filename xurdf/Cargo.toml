@@ -2,6 +2,13 @@
 name = "xurdf"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Parse URDF and Xacro."
+readme = "README.md"
+documentation = "http://neka-nat.github.io/xurdf/xurdf/"
+homepage = "https://github.com/neka-nat/xurdf"
+repository = "https://github.com/neka-nat/xurdf"
+keywords = ["robotics", "urdf"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
