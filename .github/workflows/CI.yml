@@ -28,7 +28,7 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: wheels
-        path: dist
+        path: xurdf-python/dist
 
   windows:
     runs-on: windows-latest
@@ -43,7 +43,7 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: wheels
-        path: dist
+        path: xurdf-python/dist
 
   macos:
     runs-on: macos-latest
@@ -58,7 +58,7 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: wheels
-        path: dist
+        path: xurdf-python/dist
 
   release:
     name: Release
