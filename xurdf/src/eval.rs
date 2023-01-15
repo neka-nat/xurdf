@@ -45,6 +45,11 @@ pub fn eval_text(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> String
     result.join("")
 }
 
+pub fn get_boolean_value(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> bool {
+    let res_text = eval_text(s, symbol_map);
+    eval_boolean(res_text.as_str()).unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

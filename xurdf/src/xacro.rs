@@ -59,6 +59,20 @@ impl Context {
                                 },
                             );
                         }
+                        (XACRO_PREFIX, "if") => {
+                            let value = node.attributes["value"].clone();
+                            if get_boolean_value(&value, &self.properties) {
+                                let new_node = self.parse_and_write_xacro(&node);
+                                new_elem.children.push(XMLNode::Element(new_node));
+                            }
+                        }
+                        (XACRO_PREFIX, "unless") => {
+                            let value = node.attributes["value"].clone();
+                            if !get_boolean_value(&value, &self.properties) {
+                                let new_node = self.parse_and_write_xacro(&node);
+                                new_elem.children.push(XMLNode::Element(new_node));
+                            }
+                        }
                         (XACRO_PREFIX, name) => {
                             let new_nodes = self.handle_macro_call(&node, name);
                             new_elem.children.extend(new_nodes);
