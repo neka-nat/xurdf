@@ -1,4 +1,5 @@
 # xurdf
+[![PyPI version](https://badge.fury.io/py/xurdfpy.svg)](https://badge.fury.io/py/xurdfpy)
 
 Parse URDF and Xacro.
 
@@ -7,6 +8,12 @@ Parse URDF and Xacro.
 * Parse URDF and Xacro
 * Written by Rust
 * Python bindings
+
+# Installation
+
+```sh
+pip install xurdfpy
+```
 
 ## Getting started
 
