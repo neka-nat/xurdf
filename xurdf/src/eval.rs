@@ -32,7 +32,8 @@ pub fn eval_text(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> String
         match token.0 {
             TokenType::Text => result.push(token.1),
             TokenType::Expr => {
-                let expr = eval_with_context(&token.1, &context);
+                let expr_in = token.1.replace("'", "\"");
+                let expr = eval_with_context(&expr_in, &context);
                 if let Ok(e) = expr {
                     result.push(remove_quotation_marks(&e.to_string()).to_owned());
                 } else {

@@ -34,7 +34,7 @@ print(robot)
 - [ ] property block
 - [x] macro
 - [ ] include
-- [ ] if/unless
+- [x] if/unless
 - [ ] rospack command
 - [ ] Yaml
 - [ ] element/attribute

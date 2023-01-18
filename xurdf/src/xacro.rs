@@ -63,14 +63,14 @@ impl Context {
                             let value = node.attributes["value"].clone();
                             if get_boolean_value(&value, &self.properties) {
                                 let new_node = self.parse_and_write_xacro(&node);
-                                new_elem.children.push(XMLNode::Element(new_node));
+                                new_elem.children.extend(new_node.children);
                             }
                         }
                         (XACRO_PREFIX, "unless") => {
                             let value = node.attributes["value"].clone();
                             if !get_boolean_value(&value, &self.properties) {
                                 let new_node = self.parse_and_write_xacro(&node);
-                                new_elem.children.push(XMLNode::Element(new_node));
+                                new_elem.children.extend(new_node.children);
                             }
                         }
                         (XACRO_PREFIX, name) => {
