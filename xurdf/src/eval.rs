@@ -40,6 +40,11 @@ pub fn eval_text(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> String
                     result.push(s.to_owned());
                 }
             }
+            TokenType::Extension => {
+                if token.1 == "cwd" {
+                    result.push(std::env::current_dir().unwrap().to_str().unwrap().to_owned());
+                }
+            }
             _ => {}
         }
     }
