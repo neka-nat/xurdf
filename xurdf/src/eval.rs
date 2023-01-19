@@ -43,7 +43,13 @@ pub fn eval_text(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> String
             TokenType::Extension => {
                 let expr_in = eval_text(token.1.replace("'", "\"").as_str(), symbol_map);
                 if expr_in == "cwd" {
-                    result.push(std::env::current_dir().unwrap().to_str().unwrap().to_owned());
+                    result.push(
+                        std::env::current_dir()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .to_owned(),
+                    );
                 }
             }
             _ => {}

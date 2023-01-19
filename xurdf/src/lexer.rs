@@ -1,4 +1,10 @@
+use once_cell::sync::Lazy;
 use regex::Regex;
+
+static DOLLAR_DOLLAR_BRACE_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\$\$+(\{|\()").unwrap());
+static EXPR_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\$\{[^\}]*\}").unwrap());
+static EXTENSION_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\$\([^\)]*\)").unwrap());
+static TEXT_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"[^$]+|\$[^{($]+|\$$").unwrap());
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenType {
@@ -21,11 +27,11 @@ impl Lexer {
             regexes: vec![
                 (
                     TokenType::DollarDollarBrace,
-                    Regex::new(r"^\$\$+(\{|\()").unwrap(),
+                    DOLLAR_DOLLAR_BRACE_REGEX.clone(),
                 ),
-                (TokenType::Expr, Regex::new(r"^\$\{[^\}]*\}").unwrap()),
-                (TokenType::Extension, Regex::new(r"^\$\([^\)]*\)").unwrap()),
-                (TokenType::Text, Regex::new(r"[^$]+|\$[^{($]+|\$$").unwrap()),
+                (TokenType::Expr, EXPR_REGEX.clone()),
+                (TokenType::Extension, EXTENSION_REGEX.clone()),
+                (TokenType::Text, TEXT_REGEX.clone()),
             ],
             position: 0,
         }
