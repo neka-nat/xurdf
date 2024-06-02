@@ -148,9 +148,12 @@ fn parse_geometry(node: roxmltree::Node) -> Result<Geometry> {
                 let filename = child
                     .attribute("filename")
                     .ok_or(anyhow::anyhow!("Failed to parse mesh filename"))?;
+                let scale = child
+                    .attribute("scale")
+                    .and_then(|s| parse_string_to_vector3(s).ok());
                 return Ok(Geometry::Mesh {
                     filename: filename.to_string(),
-                    scale: None,
+                    scale,
                 });
             }
             &_ => (),
