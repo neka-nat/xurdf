@@ -15,7 +15,7 @@ keywords = ["robotics", "urdf"]
 [dependencies]
 anyhow = "1.0.52"
 roxmltree = "0.14.1"
-nalgebra = "0.30.0"
+nalgebra = "0.33.0"
 xmltree = "0.10.3"
 regex = "1.7.0"
 evalexpr = "8.1.0"
