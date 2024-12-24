@@ -1,5 +1,5 @@
 use super::lexer::*;
-use evalexpr::*;
+use pyisheval::*;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -17,13 +17,13 @@ fn remove_quotation_marks(s: &str) -> &str {
 
 #[allow(unused_must_use)]
 pub fn eval_text(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> String {
-    let mut context = HashMapContext::new();
+    let mut context = HashMap::new();
     for (name, value) in symbol_map.iter() {
         let parsed_value = value.raw_value.parse::<f64>();
         if let Ok(v) = parsed_value {
-            context.set_value(name.clone(), Value::from(v));
+            context.insert(name.clone(), Value::Number(v));
         } else {
-            context.set_value(name.clone(), Value::from(value.raw_value.clone()));
+            context.insert(name.clone(), Value::StringLit(value.raw_value.clone()));
         }
     }
     let mut lexer = Lexer::new(s);
@@ -32,8 +32,9 @@ pub fn eval_text(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> String
         match token.0 {
             TokenType::Text => result.push(token.1),
             TokenType::Expr => {
-                let expr_in = eval_text(token.1.replace("'", "\"").as_str(), symbol_map);
-                let expr = eval_with_context(&expr_in, &context);
+                let expr_in = eval_text(token.1.as_str(), symbol_map);
+                let interp = Interpreter::new();
+                let expr = interp.eval_with_context(&expr_in, &context);
                 if let Ok(e) = expr {
                     result.push(remove_quotation_marks(&e.to_string()).to_owned());
                 } else {
@@ -41,7 +42,7 @@ pub fn eval_text(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> String
                 }
             }
             TokenType::Extension => {
-                let expr_in = eval_text(token.1.replace("'", "\"").as_str(), symbol_map);
+                let expr_in = eval_text(token.1.as_str(), symbol_map);
                 if expr_in == "cwd" {
                     result.push(
                         std::env::current_dir()
@@ -60,7 +61,9 @@ pub fn eval_text(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> String
 
 pub fn get_boolean_value(s: &str, symbol_map: &HashMap<String, PropertyValue>) -> bool {
     let res_text = eval_text(s, symbol_map);
-    eval_boolean(res_text.as_str()).unwrap_or(false)
+    let interp = Interpreter::new();
+    let val = interp.eval_boolean(res_text.as_str()).unwrap();
+    val
 }
 
 #[cfg(test)]
