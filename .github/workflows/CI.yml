@@ -25,7 +25,7 @@ jobs:
         working-directory: xurdf-python
         args: --release -o dist --find-interpreter
     - name: Upload wheels
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: wheels
         path: xurdf-python/dist
@@ -40,7 +40,7 @@ jobs:
         working-directory: xurdf-python
         args: --release -o dist --find-interpreter
     - name: Upload wheels
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: wheels
         path: xurdf-python/dist
@@ -55,7 +55,7 @@ jobs:
         working-directory: xurdf-python
         args: --release -o dist --universal2 --find-interpreter
     - name: Upload wheels
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: wheels
         path: xurdf-python/dist
@@ -66,7 +66,7 @@ jobs:
     if: "startsWith(github.ref, 'refs/tags/')"
     needs: [ macos, windows, linux ]
     steps:
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v4
         with:
           name: wheels
       - uses: actions/setup-python@v2
