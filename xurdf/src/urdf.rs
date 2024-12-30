@@ -88,14 +88,8 @@ fn parse_inertial(node: roxmltree::Node) -> Result<Inertial> {
 }
 
 fn parse_limit(node: roxmltree::Node) -> Result<JointLimit> {
-    let lower = node
-        .attribute("lower")
-        .ok_or(anyhow::anyhow!("Failed to parse limit lower"))?
-        .parse()?;
-    let upper = node
-        .attribute("upper")
-        .ok_or(anyhow::anyhow!("Failed to parse limit upper"))?
-        .parse()?;
+    let lower = node.attribute("lower").unwrap_or("0").parse()?;
+    let upper = node.attribute("upper").unwrap_or("0").parse()?;
     let effort = node
         .attribute("effort")
         .ok_or(anyhow::anyhow!("Failed to parse limit effort"))?
@@ -294,4 +288,16 @@ pub fn parse_urdf_from_string(xml: &str) -> Result<Robot> {
 
 pub fn parse_urdf_from_file<P: AsRef<Path>>(path: P) -> Result<Robot> {
     parse_urdf_from_string(&std::fs::read_to_string(path)?)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_parse_limit() {
+        use super::*;
+        let limit_without_optional_fields =
+            roxmltree::Document::parse(r#"<limit effort="2" velocity="3"/>"#);
+        let limit = parse_limit(limit_without_optional_fields.unwrap().root_element());
+        assert!(limit.is_ok());
+    }
 }
