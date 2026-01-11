@@ -1,6 +1,6 @@
 [package]
 name = "xurdf"
-version = "0.2.5"
+version = "0.2.6"
 edition = "2021"
 license = "MIT"
 description = "Parse URDF and Xacro."
@@ -19,4 +19,4 @@ nalgebra = "0.33.0"
 xmltree = "0.10.3"
 regex = "1.7.0"
 once_cell = "1.17.0"
-pyisheval = "0.9.0"
+pyisheval = "0.11.0"
