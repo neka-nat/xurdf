@@ -643,12 +643,12 @@ impl XacroProcessor {
                     Err(_) => Ok(parts.collect::<Vec<_>>().join(" ")),
                 }
             }
-            "arg" => {
+            "arg" | "var" => {
                 let name = required_substitution_arg(command, parts.next())?;
                 ensure_no_extra_args(command, &mut parts)?;
                 self.resolve_arg(name)
             }
-            "find" => {
+            "find" | "find-pkg-share" => {
                 let package = required_substitution_arg(command, parts.next())?;
                 ensure_no_extra_args(command, &mut parts)?;
                 self.resolve_find(package)
@@ -671,10 +671,14 @@ impl XacroProcessor {
 
     fn resolve_find(&self, package: &str) -> Result<String> {
         if let Some(path) = self.options.package_paths.get(package) {
-            return Ok(path.to_string_lossy().into_owned());
+            return Ok(normalize_package_path(path).to_string_lossy().into_owned());
         }
 
         if let Some(path) = self.options.substitution_resolver.resolve_find(package)? {
+            return Ok(normalize_package_path(&path).to_string_lossy().into_owned());
+        }
+
+        if let Some(path) = self.discover_package_path(package)? {
             return Ok(path.to_string_lossy().into_owned());
         }
 
@@ -684,6 +688,94 @@ impl XacroProcessor {
             package
         )
     }
+
+    fn discover_package_path(&self, package: &str) -> Result<Option<PathBuf>> {
+        if let Some(path) = self.discover_current_package_path(package)? {
+            return Ok(Some(path));
+        }
+        if let Some(path) = discover_package_from_env(package)? {
+            return Ok(Some(path));
+        }
+        Ok(None)
+    }
+
+    fn discover_current_package_path(&self, package: &str) -> Result<Option<PathBuf>> {
+        let mut dir = self.current_dir();
+        while let Some(path) = dir {
+            let package_xml = path.join("package.xml");
+            if package_xml.is_file() && package_xml_name(&package_xml)?.as_deref() == Some(package)
+            {
+                return Ok(Some(normalize_package_path(path)));
+            }
+            dir = path.parent();
+        }
+        Ok(None)
+    }
+}
+
+fn normalize_package_path(path: &Path) -> PathBuf {
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    };
+    std::fs::canonicalize(&path).unwrap_or(path)
+}
+
+fn discover_package_from_env(package: &str) -> Result<Option<PathBuf>> {
+    for var in ["AMENT_PREFIX_PATH", "COLCON_PREFIX_PATH"] {
+        if let Some(path) = discover_package_share_from_env_var(var, package) {
+            return Ok(Some(path));
+        }
+    }
+
+    let Some(paths) = std::env::var_os("ROS_PACKAGE_PATH") else {
+        return Ok(None);
+    };
+    for path in std::env::split_paths(&paths) {
+        if path.file_name().and_then(|name| name.to_str()) == Some(package) {
+            let package_xml = path.join("package.xml");
+            if package_xml.is_file() && package_xml_name(&package_xml)?.as_deref() == Some(package)
+            {
+                return Ok(Some(normalize_package_path(&path)));
+            }
+        }
+
+        let candidate = path.join(package);
+        let package_xml = candidate.join("package.xml");
+        if package_xml.is_file() && package_xml_name(&package_xml)?.as_deref() == Some(package) {
+            return Ok(Some(normalize_package_path(&candidate)));
+        }
+    }
+    Ok(None)
+}
+
+fn discover_package_share_from_env_var(var: &str, package: &str) -> Option<PathBuf> {
+    let paths = std::env::var_os(var)?;
+    for prefix in std::env::split_paths(&paths) {
+        let candidate = prefix.join("share").join(package);
+        if candidate.is_dir() {
+            return Some(normalize_package_path(&candidate));
+        }
+    }
+    None
+}
+
+fn package_xml_name(path: &Path) -> Result<Option<String>> {
+    let xml = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read package manifest `{}`", path.display()))?;
+    let elem = Element::parse(xml.as_bytes())
+        .with_context(|| format!("failed to parse package manifest `{}`", path.display()))?;
+    Ok(elem.children.iter().find_map(|node| {
+        let child = node.as_element()?;
+        if child.name == "name" {
+            child.get_text().map(|value| value.trim().to_string())
+        } else {
+            None
+        }
+    }))
 }
 
 fn xacro_function_arg<'a>(expr: &'a str, name: &str) -> Option<&'a str> {
@@ -1337,6 +1429,151 @@ mod tests {
     }
 
     #[test]
+    fn find_substitution_accepts_relative_option_package_path() {
+        let dir = PathBuf::from(format!(
+            "target/xurdf-xacro-relative-package-{}",
+            std::process::id()
+        ));
+        let package = dir.join("fixture_pkg");
+        let include_dir = package.join("common");
+        fs::create_dir_all(&include_dir).unwrap();
+        fs::write(
+            package.join("package.xml"),
+            r#"<package><name>fixture_pkg</name></package>"#,
+        )
+        .unwrap();
+        fs::write(
+            include_dir.join("links.xacro"),
+            format!(
+                r#"<robot xmlns:xacro="{NS}"><xacro:macro name="make_link" params="name"><link name="${{name}}"/></xacro:macro></robot>"#
+            ),
+        )
+        .unwrap();
+        let main = package.join("main.xacro");
+        fs::write(
+            &main,
+            format!(
+                r#"<robot xmlns:xacro="{NS}">
+  <xacro:include filename="$(find fixture_pkg)/common/links.xacro"/>
+  <xacro:make_link name="base"/>
+</robot>"#
+            ),
+        )
+        .unwrap();
+        let relative_package = PathBuf::from(format!(
+            "target/xurdf-xacro-relative-package-{}/fixture_pkg",
+            std::process::id()
+        ));
+        let options = XacroOptions::default().with_package_path("fixture_pkg", relative_package);
+
+        let result = parse_xacro_from_file_with_options(&main, options).unwrap();
+
+        assert!(result.contains(r#"<link name="base" />"#));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn find_substitution_discovers_current_package_manifest() {
+        let dir = temp_fixture_dir("find-current-package");
+        fs::write(
+            dir.join("package.xml"),
+            r#"<package><name>fixture_pkg</name></package>"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("links.xacro"),
+            format!(
+                r#"<robot xmlns:xacro="{NS}"><xacro:macro name="make_link" params="name"><link name="${{name}}"/></xacro:macro></robot>"#
+            ),
+        )
+        .unwrap();
+        let main = dir.join("main.xacro");
+        fs::write(
+            &main,
+            format!(
+                r#"<robot xmlns:xacro="{NS}">
+  <xacro:include filename="$(find-pkg-share fixture_pkg)/links.xacro"/>
+  <xacro:arg name="link_name" default="base"/>
+  <xacro:make_link name="$(var link_name)"/>
+</robot>"#
+            ),
+        )
+        .unwrap();
+
+        let result = parse_xacro_from_file(&main).unwrap();
+
+        assert!(result.contains(r#"<link name="base" />"#));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn find_substitution_discovers_ament_prefix_share_package() {
+        let dir = temp_fixture_dir("find-ament-prefix");
+        let package = dir.join("share").join("ament_fixture_pkg");
+        fs::create_dir_all(&package).unwrap();
+        fs::write(
+            package.join("links.xacro"),
+            format!(
+                r#"<robot xmlns:xacro="{NS}"><xacro:macro name="make_link" params="name"><link name="${{name}}"/></xacro:macro></robot>"#
+            ),
+        )
+        .unwrap();
+        let main = dir.join("main.xacro");
+        fs::write(
+            &main,
+            format!(
+                r#"<robot xmlns:xacro="{NS}">
+  <xacro:include filename="$(find-pkg-share ament_fixture_pkg)/links.xacro"/>
+  <xacro:make_link name="base"/>
+</robot>"#
+            ),
+        )
+        .unwrap();
+        let _guard = EnvVarGuard::set("AMENT_PREFIX_PATH", &dir);
+
+        let result = parse_xacro_from_file(&main).unwrap();
+
+        assert!(result.contains(r#"<link name="base" />"#));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn find_substitution_discovers_ros_package_path_manifest() {
+        let dir = temp_fixture_dir("find-ros-package-path");
+        let package = dir.join("ros_fixture_pkg");
+        fs::create_dir_all(&package).unwrap();
+        fs::write(
+            package.join("package.xml"),
+            r#"<package><name>ros_fixture_pkg</name></package>"#,
+        )
+        .unwrap();
+        fs::write(
+            package.join("links.xacro"),
+            format!(
+                r#"<robot xmlns:xacro="{NS}"><xacro:macro name="make_link" params="name"><link name="${{name}}"/></xacro:macro></robot>"#
+            ),
+        )
+        .unwrap();
+        let main = dir.join("main.xacro");
+        fs::write(
+            &main,
+            format!(
+                r#"<robot xmlns:xacro="{NS}">
+  <xacro:include filename="$(find ros_fixture_pkg)/links.xacro"/>
+  <xacro:make_link name="base"/>
+</robot>"#
+            ),
+        )
+        .unwrap();
+        let _guard = EnvVarGuard::set("ROS_PACKAGE_PATH", &dir);
+
+        let result = parse_xacro_from_file(&main).unwrap();
+
+        assert!(result.contains(r#"<link name="base" />"#));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn substitution_args_support_arg_optenv_and_find() {
         let dir = temp_fixture_dir("substitution-args");
         let missing_env = format!("XURDF_MISSING_OPTENV_{}", std::process::id());
@@ -1587,6 +1824,29 @@ feature:
 
         assert!(!result.contains(r#"name="enabled""#));
         let _ = fs::remove_dir_all(dir);
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
     }
 
     fn temp_fixture_dir(name: &str) -> PathBuf {

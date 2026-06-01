@@ -37,6 +37,6 @@ print(robot)
 - [x] insert_block
 - [x] if/unless
 - [x] substitution args (`env`, `optenv`, `arg`, `find` via resolver/options)
-- [ ] rospack command
+- [x] package lookup (`find`, `find-pkg-share`, package.xml/env/options)
 - [x] Yaml subset (`xacro.load_yaml`, map/list access, `!degrees`/`!radians`)
 - [ ] element/attribute

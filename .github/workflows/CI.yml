@@ -18,9 +18,11 @@ jobs:
           - target: x86_64
             manylinux: '2014'
             container: ghcr.io/pyo3/maturin:v1.13.3
+            docker_options: --entrypoint /bin/bash
           - target: aarch64
             manylinux: '2014'
             container: ghcr.io/rust-cross/manylinux2014-cross:aarch64
+            docker_options: ''
     steps:
     - uses: actions/checkout@v4
     - uses: PyO3/maturin-action@v1
@@ -30,6 +32,7 @@ jobs:
         command: build
         target: ${{ matrix.target }}
         working-directory: xurdf-python
+        docker-options: ${{ matrix.docker_options }}
         args: --release -o dist --find-interpreter
     - name: Upload wheels
       uses: actions/upload-artifact@v4
