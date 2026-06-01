@@ -1,6 +1,7 @@
 # xurdf
 
 Parse URDF and Xacro.
+This crate does not depend on ROS runtime packages.
 
 ## Getting started
 

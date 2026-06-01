@@ -2,10 +2,12 @@
 [![PyPI version](https://badge.fury.io/py/xurdfpy.svg)](https://badge.fury.io/py/xurdfpy)
 
 Parse URDF and Xacro.
+This library does not depend on ROS runtime packages.
 
 ## Core features
 
 * Parse URDF and Xacro
+* ROS-independent parser library
 * Written by Rust
 * Python bindings
 
