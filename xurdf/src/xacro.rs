@@ -347,7 +347,11 @@ impl XacroProcessor {
 
     fn handle_macro_definition(&mut self, node: &Element) -> Result<()> {
         let name = required_attr(node, "name")?.to_string();
-        let params = required_attr(node, "params")?;
+        let params = node
+            .attributes
+            .get("params")
+            .map(String::as_str)
+            .unwrap_or("");
         self.context.macros.insert(
             name,
             Macro {
@@ -1281,6 +1285,25 @@ mod tests {
         let result = parse_xacro_from_string(&xml).unwrap();
 
         assert!(result.contains(r#"<link name="base_link" />"#));
+        assert!(!result.contains("xacro:macro"));
+    }
+
+    #[test]
+    fn expands_no_arg_macro_without_params_attribute() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}">
+  <xacro:macro name="default_inertial">
+    <inertial>
+      <mass value="0.01"/>
+    </inertial>
+  </xacro:macro>
+  <xacro:default_inertial/>
+</robot>"#
+        );
+
+        let result = parse_xacro_from_string(&xml).unwrap();
+
+        assert!(result.contains(r#"<mass value="0.01" />"#));
         assert!(!result.contains("xacro:macro"));
     }
 
