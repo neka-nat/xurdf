@@ -1,4 +1,6 @@
 use pyo3::prelude::*;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use xurdf;
 
 #[pyclass(from_py_object)]
@@ -448,10 +450,43 @@ fn parse_xacro_file(filename: &str) -> PyResult<String> {
     Ok(xacro)
 }
 
+fn xacro_options_with_package_paths(package_paths: HashMap<String, String>) -> xurdf::XacroOptions {
+    package_paths.into_iter().fold(
+        xurdf::XacroOptions::default(),
+        |options, (package, path)| options.with_package_path(package, PathBuf::from(path)),
+    )
+}
+
+#[pyfunction]
+fn parse_xacro_file_with_package_paths(
+    filename: &str,
+    package_paths: HashMap<String, String>,
+) -> PyResult<String> {
+    let xacro = xurdf::parse_xacro_from_file_with_options(
+        filename,
+        xacro_options_with_package_paths(package_paths),
+    )
+    .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(format!("{}", e)))?;
+    Ok(xacro)
+}
+
 #[pyfunction]
 fn parse_xacro_string(contents: &str) -> PyResult<String> {
     let xacro = xurdf::parse_xacro_from_string(&contents.to_owned())
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(format!("{}", e)))?;
+    Ok(xacro)
+}
+
+#[pyfunction]
+fn parse_xacro_string_with_package_paths(
+    contents: &str,
+    package_paths: HashMap<String, String>,
+) -> PyResult<String> {
+    let xacro = xurdf::parse_xacro_from_string_with_options(
+        &contents.to_owned(),
+        xacro_options_with_package_paths(package_paths),
+    )
+    .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(format!("{}", e)))?;
     Ok(xacro)
 }
 
@@ -472,6 +507,8 @@ fn xurdfpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_urdf_file, m)?)?;
     m.add_function(wrap_pyfunction!(parse_urdf_string, m)?)?;
     m.add_function(wrap_pyfunction!(parse_xacro_file, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_xacro_file_with_package_paths, m)?)?;
     m.add_function(wrap_pyfunction!(parse_xacro_string, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_xacro_string_with_package_paths, m)?)?;
     Ok(())
 }

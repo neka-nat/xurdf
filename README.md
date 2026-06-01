@@ -40,6 +40,19 @@ xml = xurdfpy.parse_xacro_file("data/sample.xacro")
 print(xml)
 ```
 
+When resolving `$(find package_name)` or `$(find-pkg-share package_name)`, pass
+explicit package paths as a Python dict.
+
+```py
+import xurdfpy
+
+xml = xurdfpy.parse_xacro_file_with_package_paths(
+    "path/to/robot.urdf.xacro",
+    {"my_robot_description": "path/to/my_robot_description"},
+)
+print(xml)
+```
+
 ## Supported Xacro tags
 
 - [x] property (`scope=local|parent|global`)
