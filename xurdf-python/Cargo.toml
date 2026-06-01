@@ -13,5 +13,5 @@ crate-type = ["cdylib"]
 xurdf = { path = "../xurdf" }
 
 [dependencies.pyo3]
-version = "0.17.1"
-features = ["extension-module"]
+version = "0.28.3"
+features = ["extension-module", "abi3-py39"]

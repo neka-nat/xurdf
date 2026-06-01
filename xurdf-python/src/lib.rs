@@ -1,8 +1,7 @@
 use pyo3::prelude::*;
-use pyo3::IntoPy;
 use xurdf;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct Pose {
     #[pyo3(get, set)]
@@ -14,7 +13,7 @@ struct Pose {
 #[pymethods]
 impl Pose {
     #[new]
-    #[args(xyz = "[0.0, 0.0, 0.0]", rpy = "[0.0, 0.0, 0.0]")]
+    #[pyo3(signature = (xyz = [0.0, 0.0, 0.0], rpy = [0.0, 0.0, 0.0]))]
     fn new(xyz: [f64; 3], rpy: [f64; 3]) -> Self {
         Pose { xyz, rpy }
     }
@@ -23,7 +22,7 @@ impl Pose {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct Inertial {
     #[pyo3(get, set)]
@@ -37,11 +36,11 @@ struct Inertial {
 #[pymethods]
 impl Inertial {
     #[new]
-    #[args(
-        origin = "Pose::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])",
-        mass = "1.0",
-        inertia = "[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]"
-    )]
+    #[pyo3(signature = (
+        origin = Pose::new([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
+        mass = 1.0,
+        inertia = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    ))]
     fn new(origin: Pose, mass: f64, inertia: [f64; 9]) -> Self {
         Inertial {
             origin,
@@ -57,7 +56,7 @@ impl Inertial {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct Box {
     #[pyo3(get, set)]
@@ -67,7 +66,7 @@ struct Box {
 #[pymethods]
 impl Box {
     #[new]
-    #[args(size = "[1.0, 1.0, 1.0]")]
+    #[pyo3(signature = (size = [1.0, 1.0, 1.0]))]
     fn new(size: [f64; 3]) -> Self {
         Box { size }
     }
@@ -76,7 +75,7 @@ impl Box {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct Cylinder {
     #[pyo3(get, set)]
@@ -88,7 +87,7 @@ struct Cylinder {
 #[pymethods]
 impl Cylinder {
     #[new]
-    #[args(radius = "1.0", length = "1.0")]
+    #[pyo3(signature = (radius = 1.0, length = 1.0))]
     fn new(radius: f64, length: f64) -> Self {
         Cylinder { radius, length }
     }
@@ -100,7 +99,7 @@ impl Cylinder {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct Sphere {
     #[pyo3(get, set)]
@@ -110,7 +109,7 @@ struct Sphere {
 #[pymethods]
 impl Sphere {
     #[new]
-    #[args(radius = "1.0")]
+    #[pyo3(signature = (radius = 1.0))]
     fn new(radius: f64) -> Self {
         Sphere { radius }
     }
@@ -119,7 +118,7 @@ impl Sphere {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct Mesh {
     #[pyo3(get, set)]
@@ -131,7 +130,7 @@ struct Mesh {
 #[pymethods]
 impl Mesh {
     #[new]
-    #[args(filename = "\"\"", scale = "None")]
+    #[pyo3(signature = (filename = "", scale = None))]
     fn new(filename: &str, scale: Option<[f64; 3]>) -> Self {
         Mesh {
             filename: filename.to_owned(),
@@ -154,18 +153,22 @@ enum Geometry {
     Mesh(Mesh),
 }
 
-impl IntoPy<PyObject> for Geometry {
-    fn into_py(self, py: Python) -> PyObject {
+impl<'py> IntoPyObject<'py> for Geometry {
+    type Target = PyAny;
+    type Output = Bound<'py, Self::Target>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         match self {
-            Geometry::Box(b) => b.into_py(py),
-            Geometry::Cylinder(c) => c.into_py(py),
-            Geometry::Sphere(s) => s.into_py(py),
-            Geometry::Mesh(m) => m.into_py(py),
+            Geometry::Box(value) => Bound::new(py, value).map(Bound::into_any),
+            Geometry::Cylinder(value) => Bound::new(py, value).map(Bound::into_any),
+            Geometry::Sphere(value) => Bound::new(py, value).map(Bound::into_any),
+            Geometry::Mesh(value) => Bound::new(py, value).map(Bound::into_any),
         }
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct Visual {
     #[pyo3(get, set)]
@@ -186,7 +189,7 @@ impl Visual {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct Collision {
     #[pyo3(get, set)]
@@ -207,7 +210,7 @@ impl Collision {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct Link {
     #[pyo3(get, set)]
@@ -230,7 +233,7 @@ impl Link {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct JointLimit {
     #[pyo3(get, set)]
@@ -253,7 +256,7 @@ impl JointLimit {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct Joint {
     #[pyo3(get, set)]
@@ -280,7 +283,7 @@ impl Joint {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 struct Robot {
     #[pyo3(get, set)]
@@ -453,7 +456,7 @@ fn parse_xacro_string(contents: &str) -> PyResult<String> {
 }
 
 #[pymodule]
-fn xurdfpy(_py: Python, m: &PyModule) -> PyResult<()> {
+fn xurdfpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Pose>()?;
     m.add_class::<Inertial>()?;
     m.add_class::<Box>()?;
