@@ -30,6 +30,16 @@ robot = xurdfpy.parse_urdf_file("data/test_robot.urdf")
 print(robot)
 ```
 
+To parse a Xacro file, use `parse_xacro_file`. It returns the expanded XML as a
+string.
+
+```py
+import xurdfpy
+
+xml = xurdfpy.parse_xacro_file("data/sample.xacro")
+print(xml)
+```
+
 ## Supported Xacro tags
 
 - [x] property (`scope=local|parent|global`)
