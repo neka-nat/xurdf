@@ -62,15 +62,6 @@ impl XacroValue {
         }
     }
 
-    fn contains_value(&self, needle: &Self) -> bool {
-        match self {
-            Self::String(value) => value.contains(&needle.raw_value()),
-            Self::List(values) => values.iter().any(|value| xacro_values_equal(value, needle)),
-            Self::Map(values) => values.contains_key(&needle.raw_value()),
-            _ => false,
-        }
-    }
-
     fn to_eval_value(&self) -> Value {
         match self {
             Self::Null => Value::StringLit(String::new()),
@@ -92,17 +83,6 @@ impl XacroValue {
 impl From<&PropertyValue> for XacroValue {
     fn from(value: &PropertyValue) -> Self {
         Self::from_raw(&value.raw_value)
-    }
-}
-
-fn xacro_values_equal(left: &XacroValue, right: &XacroValue) -> bool {
-    match (left, right) {
-        (XacroValue::Null, XacroValue::Null) => true,
-        (XacroValue::Bool(left), XacroValue::Bool(right)) => left == right,
-        (XacroValue::Number(left), XacroValue::Number(right)) => {
-            (left - right).abs() < f64::EPSILON
-        }
-        _ => left.raw_value() == right.raw_value(),
     }
 }
 
@@ -288,116 +268,12 @@ where
     if let Some(value) = lookup_path_expression(expr, symbol_map) {
         return Ok(Some(value));
     }
-    if let Some(value) = eval_membership_expression(expr, symbol_map, resolve_value)? {
-        return Ok(Some(XacroValue::Bool(value)));
-    }
 
     let interp = Interpreter::new();
     match interp.eval_with_context(expr, &eval_context(symbol_map)) {
         Ok(value) => Ok(Some(xacro_value_from_eval(value))),
         Err(_) => Ok(None),
     }
-}
-
-fn eval_membership_expression<G>(
-    expr: &str,
-    symbol_map: &HashMap<String, XacroValue>,
-    resolve_value: &G,
-) -> Result<Option<bool>>
-where
-    G: Fn(&str) -> Result<Option<XacroValue>>,
-{
-    let Some((left_expr, negated, right_expr)) = split_membership_expression(expr) else {
-        return Ok(None);
-    };
-
-    let Some(left) = try_eval_expression(left_expr, symbol_map, resolve_value)? else {
-        return Ok(None);
-    };
-    let Some(right) = try_eval_expression(right_expr, symbol_map, resolve_value)? else {
-        return Ok(None);
-    };
-    let contains = right.contains_value(&left);
-    Ok(Some(if negated { !contains } else { contains }))
-}
-
-fn split_membership_expression(expr: &str) -> Option<(&str, bool, &str)> {
-    let words = top_level_words(expr);
-    for window in words.windows(2) {
-        if window[0].2 == "not" && window[1].2 == "in" {
-            let left = expr[..window[0].0].trim();
-            let right = expr[window[1].1..].trim();
-            if !left.is_empty() && !right.is_empty() {
-                return Some((left, true, right));
-            }
-        }
-    }
-    for (start, end, word) in words {
-        if word == "in" {
-            let left = expr[..start].trim();
-            let right = expr[end..].trim();
-            if !left.is_empty() && !right.is_empty() {
-                return Some((left, false, right));
-            }
-        }
-    }
-    None
-}
-
-fn top_level_words(expr: &str) -> Vec<(usize, usize, &str)> {
-    let mut words = Vec::new();
-    let mut word_start = None;
-    let mut quote = None;
-    let mut escape = false;
-    let mut bracket_depth = 0usize;
-    let mut brace_depth = 0usize;
-    let mut paren_depth = 0usize;
-
-    for (idx, ch) in expr.char_indices() {
-        if escape {
-            escape = false;
-            continue;
-        }
-        if ch == '\\' {
-            escape = true;
-            continue;
-        }
-        if let Some(q) = quote {
-            if ch == q {
-                quote = None;
-            }
-            continue;
-        }
-        match ch {
-            '\'' | '"' => quote = Some(ch),
-            '[' => bracket_depth += 1,
-            ']' => bracket_depth = bracket_depth.saturating_sub(1),
-            '{' => brace_depth += 1,
-            '}' => brace_depth = brace_depth.saturating_sub(1),
-            '(' => paren_depth += 1,
-            ')' => paren_depth = paren_depth.saturating_sub(1),
-            _ if ch.is_whitespace()
-                && bracket_depth == 0
-                && brace_depth == 0
-                && paren_depth == 0 =>
-            {
-                if let Some(start) = word_start.take() {
-                    words.push((start, idx, &expr[start..idx]));
-                }
-            }
-            _ if bracket_depth == 0 && brace_depth == 0 && paren_depth == 0 => {
-                if word_start.is_none() {
-                    word_start = Some(idx);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    if let Some(start) = word_start {
-        words.push((start, expr.len(), &expr[start..]));
-    }
-    words
 }
 
 fn xacro_value_from_eval(value: Value) -> XacroValue {
