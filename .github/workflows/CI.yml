@@ -33,7 +33,7 @@ jobs:
         target: ${{ matrix.target }}
         working-directory: xurdf-python
         docker-options: ${{ matrix.docker_options }}
-        args: --release -o dist --find-interpreter
+        args: --release -o dist -i python3.10 -i python3.11
     - name: Upload wheels
       uses: actions/upload-artifact@v4
       with:
@@ -48,7 +48,7 @@ jobs:
       with:
         command: build
         working-directory: xurdf-python
-        args: --release -o dist --find-interpreter
+        args: --release -o dist -i python3.10 -i python3.11
     - name: Upload wheels
       uses: actions/upload-artifact@v4
       with:
@@ -63,7 +63,7 @@ jobs:
       with:
         command: build
         working-directory: xurdf-python
-        args: --release -o dist --find-interpreter
+        args: --release -o dist -i python3.10 -i python3.11
     - name: Upload wheels
       uses: actions/upload-artifact@v4
       with:

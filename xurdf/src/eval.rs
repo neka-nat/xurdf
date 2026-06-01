@@ -166,7 +166,7 @@ where
                 if let Some(value) = try_eval_expression(&expr_in, symbol_map, resolve_value)? {
                     result.push(remove_quotation_marks(&value.raw_value()).to_owned());
                 } else {
-                    result.push(s.to_owned());
+                    result.push(format!("${{{}}}", token.1));
                 }
             }
             TokenType::Extension => {
@@ -265,10 +265,13 @@ fn typed_context_from_properties(
 }
 
 fn eval_context(symbol_map: &HashMap<String, XacroValue>) -> HashMap<String, Value> {
-    symbol_map
-        .iter()
-        .map(|(name, value)| (name.clone(), value.to_eval_value()))
-        .collect()
+    let mut context = HashMap::from([("pi".to_string(), Value::Number(std::f64::consts::PI))]);
+    context.extend(
+        symbol_map
+            .iter()
+            .map(|(name, value)| (name.clone(), value.to_eval_value())),
+    );
+    context
 }
 
 fn try_eval_expression<G>(
@@ -568,6 +571,30 @@ mod tests {
 
         let result = eval_text("${test}_", &context);
         assert_eq!(result, "1_".to_string());
+    }
+
+    #[test]
+    fn evaluates_builtin_pi_and_preserves_unresolved_expr_once() {
+        use super::*;
+        let context = HashMap::new();
+
+        let result = try_eval_text_with_values(
+            "0 ${pi} ${-pi/2.0}",
+            &context,
+            &|_| Ok(String::new()),
+            &|_| Ok(None),
+        )
+        .unwrap();
+        assert_eq!(result, "0 3.141592653589793 -1.5707963267948966");
+
+        let result = try_eval_text_with_values(
+            "prefix ${missing}",
+            &context,
+            &|_| Ok(String::new()),
+            &|_| Ok(None),
+        )
+        .unwrap();
+        assert_eq!(result, "prefix ${missing}");
     }
 
     #[test]
