@@ -31,10 +31,12 @@ print(robot)
 ## Supported Xacro tags
 
 - [x] property
-- [ ] property block
+- [x] property block
 - [x] macro
-- [ ] include
+- [x] include
+- [x] insert_block
 - [x] if/unless
+- [x] substitution args (`env`, `optenv`, `arg`, `find` via resolver/options)
 - [ ] rospack command
-- [ ] Yaml
+- [x] Yaml subset (`xacro.load_yaml`, map/list access, `!degrees`/`!radians`)
 - [ ] element/attribute
