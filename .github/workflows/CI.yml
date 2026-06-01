@@ -14,12 +14,19 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, aarch64]
+        include:
+          - target: x86_64
+            manylinux: '2014'
+            container: ghcr.io/pyo3/maturin:v1.13.3
+          - target: aarch64
+            manylinux: '2014'
+            container: ghcr.io/rust-cross/manylinux2014-cross:aarch64
     steps:
     - uses: actions/checkout@v4
-    - uses: messense/maturin-action@v1
+    - uses: PyO3/maturin-action@v1
       with:
-        manylinux: auto
+        manylinux: ${{ matrix.manylinux }}
+        container: ${{ matrix.container }}
         command: build
         target: ${{ matrix.target }}
         working-directory: xurdf-python
@@ -34,7 +41,7 @@ jobs:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: messense/maturin-action@v1
+    - uses: PyO3/maturin-action@v1
       with:
         command: build
         working-directory: xurdf-python
@@ -49,7 +56,7 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: messense/maturin-action@v1
+    - uses: PyO3/maturin-action@v1
       with:
         command: build
         working-directory: xurdf-python

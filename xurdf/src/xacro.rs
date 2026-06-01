@@ -49,6 +49,13 @@ struct BlockValue {
     nodes: Vec<XMLNode>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PropertyScope {
+    Local,
+    Parent,
+    Global,
+}
+
 #[derive(Clone, Debug, Default)]
 struct XacroContext {
     properties: HashMap<String, XacroValue>,
@@ -121,6 +128,10 @@ pub struct XacroProcessor {
     context: XacroContext,
     options: XacroOptions,
     include_stack: Vec<PathBuf>,
+    parent_property_exports: HashMap<String, XacroValue>,
+    global_property_exports: HashMap<String, XacroValue>,
+    parent_block_exports: HashMap<String, BlockValue>,
+    global_block_exports: HashMap<String, BlockValue>,
 }
 
 impl Default for XacroProcessor {
@@ -139,6 +150,10 @@ impl XacroProcessor {
             context: context_from_options(&options),
             options,
             include_stack: Vec::new(),
+            parent_property_exports: HashMap::new(),
+            global_property_exports: HashMap::new(),
+            parent_block_exports: HashMap::new(),
+            global_block_exports: HashMap::new(),
         }
     }
 
@@ -168,6 +183,10 @@ impl XacroProcessor {
     fn reset_context(&mut self) {
         self.context = context_from_options(&self.options);
         self.include_stack.clear();
+        self.parent_property_exports.clear();
+        self.global_property_exports.clear();
+        self.parent_block_exports.clear();
+        self.global_block_exports.clear();
     }
 
     fn process_file_inner(&mut self, path: &Path) -> Result<String> {
@@ -265,6 +284,7 @@ impl XacroProcessor {
         let name = self.eval_text(required_attr(node, "name")?)?;
         let value = node.attributes.get("value");
         let default = node.attributes.get("default");
+        let scope = self.property_scope(node)?;
         let has_element_children = node
             .children
             .iter()
@@ -278,22 +298,19 @@ impl XacroProcessor {
         }
 
         if let Some(value) = value {
-            self.context
-                .properties
-                .insert(name, self.eval_value(value)?);
+            let value = self.eval_value(value)?;
+            self.set_property(name, value, scope);
         } else if let Some(default) = default {
             if !self.context.properties.contains_key(&name) {
-                self.context
-                    .properties
-                    .insert(name, self.eval_value(default)?);
+                let value = self.eval_value(default)?;
+                self.set_property(name, value, scope);
             }
         } else {
-            self.context.blocks.insert(
-                format!("**{}", name),
-                BlockValue {
-                    nodes: element_child_nodes(&node.children),
-                },
-            );
+            let name = format!("**{}", name);
+            let block = BlockValue {
+                nodes: element_child_nodes(&node.children),
+            };
+            self.set_block(name, block, scope);
         }
         Ok(())
     }
@@ -356,8 +373,8 @@ impl XacroProcessor {
             .with_context(|| format!("failed to evaluate xacro:{} condition", tag_name))
     }
 
-    fn handle_macro_call(&self, node: &Element, name: &str) -> Result<Vec<XMLNode>> {
-        let Some(this_macro) = self.context.macros.get(name) else {
+    fn handle_macro_call(&mut self, node: &Element, name: &str) -> Result<Vec<XMLNode>> {
+        let Some(this_macro) = self.context.macros.get(name).cloned() else {
             if UNSUPPORTED_XACRO_TAGS.contains(&name) {
                 bail!("unsupported xacro tag `xacro:{}`", name);
             }
@@ -384,6 +401,10 @@ impl XacroProcessor {
             context: self.context.clone(),
             options: self.options.clone(),
             include_stack: self.include_stack.clone(),
+            parent_property_exports: HashMap::new(),
+            global_property_exports: HashMap::new(),
+            parent_block_exports: HashMap::new(),
+            global_block_exports: HashMap::new(),
         };
 
         for param in this_macro
@@ -444,7 +465,65 @@ impl XacroProcessor {
         }
 
         let new_elem = local_processor.process_element(&this_macro.body)?;
+        self.apply_scope_exports(&local_processor);
         Ok(new_elem.children)
+    }
+
+    fn property_scope(&self, node: &Element) -> Result<PropertyScope> {
+        let Some(scope) = node.attributes.get("scope") else {
+            return Ok(PropertyScope::Local);
+        };
+        match self.eval_text(scope)?.as_str() {
+            "local" => Ok(PropertyScope::Local),
+            "parent" => Ok(PropertyScope::Parent),
+            "global" => Ok(PropertyScope::Global),
+            scope => bail!("unsupported xacro:property scope `{}`", scope),
+        }
+    }
+
+    fn set_property(&mut self, name: String, value: XacroValue, scope: PropertyScope) {
+        self.context.properties.insert(name.clone(), value.clone());
+        match scope {
+            PropertyScope::Local => {}
+            PropertyScope::Parent => {
+                self.parent_property_exports.insert(name, value);
+            }
+            PropertyScope::Global => {
+                self.global_property_exports.insert(name, value);
+            }
+        }
+    }
+
+    fn set_block(&mut self, name: String, block: BlockValue, scope: PropertyScope) {
+        self.context.blocks.insert(name.clone(), block.clone());
+        match scope {
+            PropertyScope::Local => {}
+            PropertyScope::Parent => {
+                self.parent_block_exports.insert(name, block);
+            }
+            PropertyScope::Global => {
+                self.global_block_exports.insert(name, block);
+            }
+        }
+    }
+
+    fn apply_scope_exports(&mut self, child: &XacroProcessor) {
+        for (name, value) in child.parent_property_exports.iter() {
+            self.context.properties.insert(name.clone(), value.clone());
+        }
+        for (name, block) in child.parent_block_exports.iter() {
+            self.context.blocks.insert(name.clone(), block.clone());
+        }
+        for (name, value) in child.global_property_exports.iter() {
+            self.context.properties.insert(name.clone(), value.clone());
+            self.global_property_exports
+                .insert(name.clone(), value.clone());
+        }
+        for (name, block) in child.global_block_exports.iter() {
+            self.context.blocks.insert(name.clone(), block.clone());
+            self.global_block_exports
+                .insert(name.clone(), block.clone());
+        }
     }
 
     fn eval_macro_default(&self, param: &MacroParam, default: &MacroDefault) -> Result<XacroValue> {
@@ -1362,6 +1441,60 @@ mod tests {
         let err = parse_xacro_from_string(&xml).unwrap_err().to_string();
 
         assert!(err.contains("missing required parameter `name` for macro `xacro:link_macro`"));
+    }
+
+    #[test]
+    fn macro_parent_scope_exports_property_to_caller() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}">
+  <xacro:macro name="set_values" params="value">
+    <xacro:property name="local_only" value="hidden"/>
+    <xacro:property name="exported" value="${{value}}" scope="parent"/>
+  </xacro:macro>
+  <xacro:set_values value="ok"/>
+  <link name="${{exported}}" local="${{local_only}}"/>
+</robot>"#
+        );
+
+        let result = parse_xacro_from_string(&xml).unwrap();
+
+        assert!(result.contains(r#"name="ok""#));
+        assert!(result.contains(r#"local="${local_only}""#));
+    }
+
+    #[test]
+    fn macro_global_scope_exports_through_nested_callers() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}">
+  <xacro:macro name="inner" params="">
+    <xacro:property name="global_name" value="visible" scope="global"/>
+  </xacro:macro>
+  <xacro:macro name="outer" params="">
+    <xacro:inner/>
+    <link name="inside_${{global_name}}"/>
+  </xacro:macro>
+  <xacro:outer/>
+  <link name="outside_${{global_name}}"/>
+</robot>"#
+        );
+
+        let result = parse_xacro_from_string(&xml).unwrap();
+
+        assert!(result.contains(r#"name="inside_visible""#));
+        assert!(result.contains(r#"name="outside_visible""#));
+    }
+
+    #[test]
+    fn errors_on_invalid_property_scope() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}">
+  <xacro:property name="bad" value="1" scope="sideways"/>
+</robot>"#
+        );
+
+        let err = parse_xacro_from_string(&xml).unwrap_err().to_string();
+
+        assert!(err.contains("unsupported xacro:property scope `sideways`"));
     }
 
     #[test]

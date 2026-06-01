@@ -30,7 +30,7 @@ print(robot)
 
 ## Supported Xacro tags
 
-- [x] property
+- [x] property (`scope=local|parent|global`)
 - [x] property block
 - [x] macro
 - [x] include
