@@ -41,16 +41,53 @@ print(xml)
 ```
 
 When resolving `$(find package_name)` or `$(find-pkg-share package_name)`, pass
-explicit package paths as a Python dict.
+explicit package paths with `package_paths`.
 
 ```py
 import xurdfpy
 
-xml = xurdfpy.parse_xacro_file_with_package_paths(
+xml = xurdfpy.parse_xacro_file(
     "path/to/robot.urdf.xacro",
-    {"my_robot_description": "path/to/my_robot_description"},
+    package_paths={"my_robot_description": "path/to/my_robot_description"},
 )
 print(xml)
+```
+
+Pass Xacro arguments with `args`.
+
+```py
+import xurdfpy
+
+xml = xurdfpy.parse_xacro_file(
+    "path/to/robot.urdf.xacro",
+    package_paths={"my_robot_description": "path/to/my_robot_description"},
+    args={"name": "ur5", "prefix": "left"},
+)
+```
+
+## Command line
+
+After installation, or directly through `uvx`, convert Xacro to expanded XML with
+`xurdf-xacro`.
+
+```sh
+uvx --from xurdfpy xurdf-xacro data/sample.xacro
+uvx --from xurdfpy xurdf-xacro data/sample.xacro -o robot.urdf
+```
+
+Pass package paths for `$(find package_name)` or `$(find-pkg-share package_name)`
+with `--package-path`. The option can be repeated.
+
+```sh
+uvx --from xurdfpy xurdf-xacro path/to/robot.urdf.xacro \
+  --package-path my_robot_description=path/to/my_robot_description \
+  -o robot.urdf
+```
+
+Xacro arguments are accepted after the input file with `name:=value`.
+
+```sh
+uvx --from xurdfpy xurdf-xacro path/to/robot.urdf.xacro prefix:=left
 ```
 
 ## Supported Xacro tags

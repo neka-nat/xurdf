@@ -11,3 +11,6 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
+
+[project.scripts]
+xurdf-xacro = "xurdfpy:xacro_main"

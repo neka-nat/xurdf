@@ -231,6 +231,9 @@ impl XacroProcessor {
         new_elem.children.clear();
 
         if elem.prefix.is_none() {
+            if element_attributes_use_args(elem) {
+                self.handle_direct_args(elem)?;
+            }
             for (name, val) in elem.attributes.iter() {
                 let new_value = self.eval_text(val)?;
                 new_elem.attributes.insert(name.clone(), new_value);
@@ -278,6 +281,18 @@ impl XacroProcessor {
         }
 
         Ok(new_elem)
+    }
+
+    fn handle_direct_args(&mut self, elem: &Element) -> Result<()> {
+        for child in elem.children.iter() {
+            let Some(node) = child.as_element() else {
+                continue;
+            };
+            if xacro_tag_name(node) == Some("arg") {
+                self.handle_arg(node)?;
+            }
+        }
+        Ok(())
     }
 
     fn handle_property(&mut self, node: &Element) -> Result<()> {
@@ -1021,6 +1036,12 @@ fn xacro_tag_name(node: &Element) -> Option<&str> {
     }
 }
 
+fn element_attributes_use_args(elem: &Element) -> bool {
+    elem.attributes
+        .values()
+        .any(|value| value.contains("$(arg") || value.contains("$(var"))
+}
+
 fn required_attr<'a>(node: &'a Element, attr: &str) -> Result<&'a str> {
     node.attributes
         .get(attr)
@@ -1426,6 +1447,51 @@ mod tests {
 
         assert!(result.contains(r#"<link name="base" />"#));
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn root_attribute_can_use_child_arg_default() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}" name="$(arg name)">
+  <xacro:arg name="name" default="demo"/>
+  <link name="base"/>
+</robot>"#
+        );
+
+        let result = parse_xacro_from_string(&xml).unwrap();
+
+        assert!(result.contains(r#"name="demo""#));
+        assert!(result.contains(r#"<link name="base" />"#));
+    }
+
+    #[test]
+    fn option_arg_overrides_child_arg_default_in_root_attribute() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}" name="$(arg name)">
+  <xacro:arg name="name" default="demo"/>
+  <link name="base"/>
+</robot>"#
+        );
+        let options = XacroOptions::default().with_arg("name", "provided");
+
+        let result = parse_xacro_from_string_with_options(&xml, options).unwrap();
+
+        assert!(result.contains(r#"name="provided""#));
+    }
+
+    #[test]
+    fn arg_default_can_use_preceding_property_when_parent_attribute_does_not_need_args() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}">
+  <xacro:property name="default_name" value="demo"/>
+  <xacro:arg name="name" default="${{default_name}}"/>
+  <link name="$(arg name)"/>
+</robot>"#
+        );
+
+        let result = parse_xacro_from_string(&xml).unwrap();
+
+        assert!(result.contains(r#"<link name="demo" />"#));
     }
 
     #[test]

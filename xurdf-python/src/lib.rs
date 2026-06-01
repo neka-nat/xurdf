@@ -1,5 +1,7 @@
 use pyo3::prelude::*;
 use std::collections::HashMap;
+use std::fs;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use xurdf;
 
@@ -429,65 +431,238 @@ fn convert_robot(robot: xurdf::Robot) -> Robot {
     }
 }
 
+fn py_exception(err: impl std::fmt::Display) -> PyErr {
+    PyErr::new::<pyo3::exceptions::PyException, _>(format!("{:#}", err))
+}
+
 #[pyfunction]
 fn parse_urdf_file(filename: &str) -> PyResult<Robot> {
-    let robot = xurdf::parse_urdf_from_file(filename)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(format!("{}", e)))?;
+    let robot = xurdf::parse_urdf_from_file(filename).map_err(py_exception)?;
     Ok(convert_robot(robot))
 }
 
 #[pyfunction]
 fn parse_urdf_string(contents: &str) -> PyResult<Robot> {
-    let robot = xurdf::parse_urdf_from_string(&contents.to_owned())
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(format!("{}", e)))?;
+    let robot = xurdf::parse_urdf_from_string(&contents.to_owned()).map_err(py_exception)?;
     Ok(convert_robot(robot))
 }
 
-#[pyfunction]
-fn parse_xacro_file(filename: &str) -> PyResult<String> {
-    let xacro = xurdf::parse_xacro_from_file(filename)
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(format!("{}", e)))?;
-    Ok(xacro)
-}
-
-fn xacro_options_with_package_paths(package_paths: HashMap<String, String>) -> xurdf::XacroOptions {
-    package_paths.into_iter().fold(
+fn xacro_options(
+    package_paths: HashMap<String, String>,
+    args: HashMap<String, String>,
+) -> xurdf::XacroOptions {
+    let options = package_paths.into_iter().fold(
         xurdf::XacroOptions::default(),
         |options, (package, path)| options.with_package_path(package, PathBuf::from(path)),
-    )
+    );
+    args.into_iter().fold(options, |options, (name, value)| {
+        options.with_arg(name, value)
+    })
 }
 
 #[pyfunction]
-fn parse_xacro_file_with_package_paths(
+#[pyo3(signature = (filename, package_paths = None, args = None))]
+fn parse_xacro_file(
     filename: &str,
-    package_paths: HashMap<String, String>,
+    package_paths: Option<HashMap<String, String>>,
+    args: Option<HashMap<String, String>>,
 ) -> PyResult<String> {
     let xacro = xurdf::parse_xacro_from_file_with_options(
         filename,
-        xacro_options_with_package_paths(package_paths),
+        xacro_options(package_paths.unwrap_or_default(), args.unwrap_or_default()),
     )
-    .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(format!("{}", e)))?;
+    .map_err(py_exception)?;
     Ok(xacro)
 }
 
 #[pyfunction]
-fn parse_xacro_string(contents: &str) -> PyResult<String> {
-    let xacro = xurdf::parse_xacro_from_string(&contents.to_owned())
-        .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(format!("{}", e)))?;
-    Ok(xacro)
-}
-
-#[pyfunction]
-fn parse_xacro_string_with_package_paths(
+#[pyo3(signature = (contents, package_paths = None, args = None))]
+fn parse_xacro_string(
     contents: &str,
-    package_paths: HashMap<String, String>,
+    package_paths: Option<HashMap<String, String>>,
+    args: Option<HashMap<String, String>>,
 ) -> PyResult<String> {
     let xacro = xurdf::parse_xacro_from_string_with_options(
         &contents.to_owned(),
-        xacro_options_with_package_paths(package_paths),
+        xacro_options(package_paths.unwrap_or_default(), args.unwrap_or_default()),
     )
-    .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(format!("{}", e)))?;
+    .map_err(py_exception)?;
     Ok(xacro)
+}
+
+const XACRO_CLI_USAGE: &str = r#"Usage: xurdf-xacro [OPTIONS] <INPUT> [name:=value ...]
+
+Expand a Xacro file and write the expanded XML.
+
+Options:
+  -o, --output <PATH>             Write expanded XML to PATH instead of stdout
+  -p, --package-path <NAME=PATH>  Resolve $(find NAME) and $(find-pkg-share NAME) to PATH; repeatable
+  -h, --help                      Show this help
+"#;
+
+#[derive(Debug)]
+struct XacroCliArgs {
+    input: PathBuf,
+    output: Option<PathBuf>,
+    package_paths: HashMap<String, PathBuf>,
+    args: HashMap<String, String>,
+}
+
+fn parse_package_path(spec: &str) -> Result<(String, PathBuf), String> {
+    let (package, path) = spec
+        .split_once("=")
+        .ok_or_else(|| format!("package path must use NAME=PATH: {}", spec))?;
+    if package.is_empty() || path.is_empty() {
+        return Err(format!("package path must use NAME=PATH: {}", spec));
+    }
+    Ok((package.to_string(), PathBuf::from(path)))
+}
+
+fn parse_xacro_arg(spec: &str) -> Result<(String, String), String> {
+    let (name, value) = spec
+        .split_once(":=")
+        .ok_or_else(|| format!("xacro argument must use NAME:=VALUE: {}", spec))?;
+    if name.is_empty() {
+        return Err(format!("xacro argument must use NAME:=VALUE: {}", spec));
+    }
+    Ok((name.to_string(), value.to_string()))
+}
+
+fn parse_xacro_cli_args<I, S>(args: I) -> Result<Option<XacroCliArgs>, String>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let mut iter = args.into_iter().map(Into::into).peekable();
+    let mut input = None;
+    let mut output = None;
+    let mut package_paths = HashMap::new();
+    let mut xacro_args = HashMap::new();
+
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "-h" | "--help" => return Ok(None),
+            "-o" | "--output" => {
+                let path = iter
+                    .next()
+                    .ok_or_else(|| format!("{} requires a path", arg))?;
+                output = Some(PathBuf::from(path));
+            }
+            "-p" | "--package-path" => {
+                let spec = iter
+                    .next()
+                    .ok_or_else(|| format!("{} requires NAME=PATH", arg))?;
+                let (package, path) = parse_package_path(&spec)?;
+                package_paths.insert(package, path);
+            }
+            "--" => {
+                for value in iter.by_ref() {
+                    if input.is_none() {
+                        input = Some(PathBuf::from(value));
+                    } else {
+                        let (name, value) = parse_xacro_arg(&value)?;
+                        xacro_args.insert(name, value);
+                    }
+                }
+                break;
+            }
+            _ if arg.starts_with("--output=") => {
+                let path = arg.trim_start_matches("--output=");
+                if path.is_empty() {
+                    return Err("--output requires a path".to_string());
+                }
+                output = Some(PathBuf::from(path));
+            }
+            _ if arg.starts_with("--package-path=") => {
+                let spec = arg.trim_start_matches("--package-path=");
+                let (package, path) = parse_package_path(spec)?;
+                package_paths.insert(package, path);
+            }
+            _ if arg.starts_with("-") => return Err(format!("unknown option: {}", arg)),
+            _ if input.is_none() => input = Some(PathBuf::from(arg)),
+            _ => {
+                let (name, value) = parse_xacro_arg(&arg)?;
+                xacro_args.insert(name, value);
+            }
+        }
+    }
+
+    let input = input.ok_or_else(|| "missing input xacro file".to_string())?;
+    Ok(Some(XacroCliArgs {
+        input,
+        output,
+        package_paths,
+        args: xacro_args,
+    }))
+}
+
+fn xacro_options_for_cli(cli: &XacroCliArgs) -> xurdf::XacroOptions {
+    let options = cli.package_paths.iter().fold(
+        xurdf::XacroOptions::default(),
+        |options, (package, path)| options.with_package_path(package, path),
+    );
+    cli.args.iter().fold(options, |options, (name, value)| {
+        options.with_arg(name, value)
+    })
+}
+
+fn run_xacro_cli<I, S>(args: I, stdout: &mut dyn Write, stderr: &mut dyn Write) -> i32
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let cli = match parse_xacro_cli_args(args) {
+        Ok(Some(cli)) => cli,
+        Ok(None) => {
+            let _ = stdout
+                .write_all(XACRO_CLI_USAGE.as_bytes())
+                .and_then(|_| stdout.flush());
+            return 0;
+        }
+        Err(err) => {
+            let _ = writeln!(stderr, "xurdf-xacro: error: {}", err);
+            let _ = writeln!(stderr, "Try `xurdf-xacro --help` for usage.");
+            return 2;
+        }
+    };
+
+    let xml =
+        match xurdf::parse_xacro_from_file_with_options(&cli.input, xacro_options_for_cli(&cli)) {
+            Ok(xml) => xml,
+            Err(err) => {
+                let _ = writeln!(stderr, "xurdf-xacro: error: {:#}", err);
+                return 1;
+            }
+        };
+
+    let result = if let Some(output) = &cli.output {
+        fs::write(output, xml.as_bytes()).map_err(|err| err.to_string())
+    } else {
+        stdout
+            .write_all(xml.as_bytes())
+            .and_then(|_| stdout.flush())
+            .map_err(|err| err.to_string())
+    };
+
+    if let Err(err) = result {
+        let _ = writeln!(stderr, "xurdf-xacro: error: {}", err);
+        return 1;
+    }
+
+    0
+}
+
+#[pyfunction]
+fn xacro_main(py: Python<'_>) -> PyResult<i32> {
+    let sys = py.import("sys")?;
+    let argv: Vec<String> = sys.getattr("argv")?.extract()?;
+    let mut stdout = io::stdout();
+    let mut stderr = io::stderr();
+    Ok(run_xacro_cli(
+        argv.into_iter().skip(1),
+        &mut stdout,
+        &mut stderr,
+    ))
 }
 
 #[pymodule]
@@ -507,8 +682,7 @@ fn xurdfpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_urdf_file, m)?)?;
     m.add_function(wrap_pyfunction!(parse_urdf_string, m)?)?;
     m.add_function(wrap_pyfunction!(parse_xacro_file, m)?)?;
-    m.add_function(wrap_pyfunction!(parse_xacro_file_with_package_paths, m)?)?;
     m.add_function(wrap_pyfunction!(parse_xacro_string, m)?)?;
-    m.add_function(wrap_pyfunction!(parse_xacro_string_with_package_paths, m)?)?;
+    m.add_function(wrap_pyfunction!(xacro_main, m)?)?;
     Ok(())
 }
