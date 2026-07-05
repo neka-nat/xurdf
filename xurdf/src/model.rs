@@ -1,6 +1,6 @@
 extern crate nalgebra as na;
 
-use na::{Matrix3, Vector3};
+use na::{Matrix3, Vector3, Vector4};
 
 #[derive(Debug)]
 pub struct Pose {
@@ -48,11 +48,18 @@ impl Default for Geometry {
     }
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct Material {
+    pub name: Option<String>,
+    pub color: Option<Vector4<f64>>,
+}
+
 #[derive(Debug, Default)]
 pub struct Visual {
     pub name: Option<String>,
     pub origin: Pose,
     pub geometry: Geometry,
+    pub material: Option<Material>,
 }
 
 #[derive(Debug, Default)]
@@ -92,6 +99,7 @@ pub struct Joint {
 #[derive(Debug, Default)]
 pub struct Robot {
     pub name: String,
+    pub materials: Vec<Material>,
     pub links: Vec<Link>,
     pub joints: Vec<Joint>,
 }

@@ -149,6 +149,27 @@ impl Mesh {
     }
 }
 
+#[pyclass(from_py_object)]
+#[derive(Clone, Debug)]
+struct Material {
+    #[pyo3(get, set)]
+    name: Option<String>,
+    #[pyo3(get, set)]
+    color: Option<[f64; 4]>,
+}
+
+#[pymethods]
+impl Material {
+    #[new]
+    #[pyo3(signature = (name = None, color = None))]
+    fn new(name: Option<String>, color: Option<[f64; 4]>) -> Self {
+        Material { name, color }
+    }
+    fn __repr__(&self) -> String {
+        format!("Material(name: {:?}, color: {:?})", self.name, self.color)
+    }
+}
+
 #[derive(Clone, Debug)]
 enum Geometry {
     Box(Box),
@@ -181,14 +202,16 @@ struct Visual {
     origin: Pose,
     #[pyo3(get)]
     geometry: Geometry,
+    #[pyo3(get, set)]
+    material: Option<Material>,
 }
 
 #[pymethods]
 impl Visual {
     fn __repr__(&self) -> String {
         format!(
-            "Visual(name: {:?}, origin: {:?}, geometry: {:?})",
-            self.name, self.origin, self.geometry
+            "Visual(name: {:?}, origin: {:?}, geometry: {:?}, material: {:?})",
+            self.name, self.origin, self.geometry, self.material
         )
     }
 }
@@ -293,6 +316,8 @@ struct Robot {
     #[pyo3(get, set)]
     name: String,
     #[pyo3(get, set)]
+    materials: Vec<Material>,
+    #[pyo3(get, set)]
     links: Vec<Link>,
     #[pyo3(get, set)]
     joints: Vec<Joint>,
@@ -302,13 +327,24 @@ struct Robot {
 impl Robot {
     fn __repr__(&self) -> String {
         format!(
-            "Robot(name: {:?}, links: {:?}, joints: {:?})",
-            self.name, self.links, self.joints
+            "Robot(name: {:?}, materials: {:?}, links: {:?}, joints: {:?})",
+            self.name, self.materials, self.links, self.joints
         )
     }
 }
 
+fn convert_material(material: &xurdf::Material) -> Material {
+    Material {
+        name: material.name.clone(),
+        color: material
+            .color
+            .as_ref()
+            .map(|color| [color[0], color[1], color[2], color[3]]),
+    }
+}
+
 fn convert_robot(robot: xurdf::Robot) -> Robot {
+    let materials = robot.materials.iter().map(convert_material).collect();
     let links = robot
         .links
         .iter()
@@ -360,6 +396,7 @@ fn convert_robot(robot: xurdf::Robot) -> Robot {
                             rpy: visual.origin.rpy.into(),
                         },
                         geometry,
+                        material: visual.material.as_ref().map(convert_material),
                     }
                 })
                 .collect();
@@ -426,6 +463,7 @@ fn convert_robot(robot: xurdf::Robot) -> Robot {
         .collect();
     Robot {
         name: robot.name,
+        materials: materials,
         links: links,
         joints: joints,
     }
@@ -673,6 +711,7 @@ fn xurdfpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Sphere>()?;
     m.add_class::<Cylinder>()?;
     m.add_class::<Mesh>()?;
+    m.add_class::<Material>()?;
     m.add_class::<Collision>()?;
     m.add_class::<Visual>()?;
     m.add_class::<Link>()?;
