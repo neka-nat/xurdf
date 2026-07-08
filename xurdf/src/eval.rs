@@ -1,7 +1,7 @@
 use super::lexer::*;
 use anyhow::{anyhow, Result};
 use indexmap::IndexMap;
-use pyisheval::{Interpreter, Value};
+use pyisheval::{EvalError, Interpreter, Value};
 use std::collections::{BTreeMap, HashMap};
 
 #[derive(Clone, Debug)]
@@ -244,8 +244,38 @@ fn typed_context_from_properties(
         .collect()
 }
 
+fn xacro_builtin_radians(args: &[f64]) -> std::result::Result<f64, EvalError> {
+    if args.len() != 1 {
+        return Err(EvalError::ArgError("radians".to_string()));
+    }
+    Ok(args[0].to_radians())
+}
+
+fn xacro_builtin_degrees(args: &[f64]) -> std::result::Result<f64, EvalError> {
+    if args.len() != 1 {
+        return Err(EvalError::ArgError("degrees".to_string()));
+    }
+    Ok(args[0].to_degrees())
+}
+
 fn eval_context(symbol_map: &HashMap<String, XacroValue>) -> HashMap<String, Value> {
-    let mut context = HashMap::from([("pi".to_string(), Value::Number(std::f64::consts::PI))]);
+    let mut context = HashMap::from([
+        ("pi".to_string(), Value::Number(std::f64::consts::PI)),
+        (
+            "radians".to_string(),
+            Value::Builtin {
+                name: "radians".to_string(),
+                func: xacro_builtin_radians,
+            },
+        ),
+        (
+            "degrees".to_string(),
+            Value::Builtin {
+                name: "degrees".to_string(),
+                func: xacro_builtin_degrees,
+            },
+        ),
+    ]);
     context.extend(
         symbol_map
             .iter()
@@ -471,6 +501,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, "prefix ${missing}");
+    }
+
+    #[test]
+    fn evaluates_xacro_angle_helpers() {
+        use super::*;
+        let context = HashMap::new();
+
+        let result = try_eval_text_with_values(
+            "0 ${radians(90)} ${degrees(pi)}",
+            &context,
+            &|_| Ok(String::new()),
+            &|_| Ok(None),
+        )
+        .unwrap();
+        assert_eq!(result, "0 1.5707963267948966 180");
+
+        let value = try_eval_value_with_values(
+            "${radians(180)}",
+            &context,
+            &|_| Ok(String::new()),
+            &|_| Ok(None),
+        )
+        .unwrap();
+        let XacroValue::Number(value) = value else {
+            panic!("expected numeric radians result");
+        };
+        assert!((value - std::f64::consts::PI).abs() < 1e-12);
     }
 
     #[test]

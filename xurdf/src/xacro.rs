@@ -1391,6 +1391,24 @@ mod tests {
     }
 
     #[test]
+    fn expands_radians_helper_expression() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}">
+  <joint name="j">
+    <origin rpy="0 0 ${{radians(90)}}"/>
+    <limit lower="0" upper="${{radians(180)}}"/>
+  </joint>
+</robot>"#
+        );
+
+        let result = parse_xacro_from_string(&xml).unwrap();
+
+        assert!(result.contains(r#"rpy="0 0 1.5707963267948966""#));
+        assert!(result.contains(r#"upper="3.141592653589793""#));
+        assert!(!result.contains("radians("));
+    }
+
+    #[test]
     fn strips_quotes_from_macro_default_literals() {
         let xml = format!(
             r#"<robot xmlns:xacro="{NS}">
