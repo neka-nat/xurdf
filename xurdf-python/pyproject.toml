@@ -14,3 +14,13 @@ classifiers = [
 
 [project.scripts]
 xurdf-xacro = "xurdfpy:xacro_main"
+
+[tool.maturin]
+include = [
+    { path = "xurdfpy/__init__.py", format = "wheel" },
+    { path = "xurdfpy/__init__.pyi", format = "wheel" },
+    { path = "xurdfpy/py.typed", format = "wheel" },
+    { path = "xurdfpy/__init__.py", format = "sdist" },
+    { path = "xurdfpy/__init__.pyi", format = "sdist" },
+    { path = "xurdfpy/py.typed", format = "sdist" },
+]

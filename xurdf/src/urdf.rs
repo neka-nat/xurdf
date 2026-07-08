@@ -1,7 +1,7 @@
 extern crate nalgebra as na;
 
 use super::model::*;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use na::{Matrix3, Vector3, Vector4};
 use std::collections::HashMap;
 use std::path::Path;
@@ -342,11 +342,14 @@ pub fn parse_urdf_from_string(xml: &str) -> Result<Robot> {
         .children()
         .filter(|n| n.tag_name().name() == "joint")
         .map(|n| {
-            let joint = parse_joint(n)?;
-            Result::<Joint>::Ok(joint)
+            parse_joint(n).with_context(|| {
+                format!(
+                    "failed to parse joint `{}`",
+                    n.attribute("name").unwrap_or("<unnamed>")
+                )
+            })
         })
-        .flatten()
-        .collect();
+        .collect::<Result<Vec<Joint>>>()?;
     Ok(Robot {
         name: String::from(
             node.attribute("name")
@@ -391,6 +394,26 @@ mod tests {
         .unwrap();
 
         assert_eq!(robot.joints[0].axis, Vector3::new(1.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn invalid_joint_returns_error_instead_of_being_ignored() {
+        let err = parse_urdf_from_string(
+            r#"
+            <robot name="invalid_joint">
+              <link name="parent"/>
+              <link name="child"/>
+              <joint name="bad_joint" type="fixed">
+                <parent link="parent"/>
+              </joint>
+            </robot>
+            "#,
+        )
+        .unwrap_err();
+        let message = format!("{:#}", err);
+
+        assert!(message.contains("failed to parse joint `bad_joint`"));
+        assert!(message.contains("Failed to parse joint child"));
     }
 
     #[test]
