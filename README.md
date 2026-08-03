@@ -30,6 +30,10 @@ robot = xurdfpy.parse_urdf_file("data/test_robot.urdf")
 print(robot)
 ```
 
+Joint mimic declarations are available through `joint.mimic`. The referenced
+joint position is mapped as `multiplier * source_position + offset`; omitted
+`multiplier` and `offset` attributes default to `1.0` and `0.0`.
+
 To parse a Xacro file, use `parse_xacro_file`. It returns the expanded XML as a
 string.
 

@@ -85,6 +85,23 @@ pub struct JointLimit {
     pub velocity: f64,
 }
 
+#[derive(Debug)]
+pub struct JointMimic {
+    pub joint: String,
+    pub multiplier: f64,
+    pub offset: f64,
+}
+
+impl Default for JointMimic {
+    fn default() -> Self {
+        Self {
+            joint: String::new(),
+            multiplier: 1.0,
+            offset: 0.0,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Joint {
     pub name: String,
@@ -94,6 +111,7 @@ pub struct Joint {
     pub child: String,
     pub axis: Vector3<f64>,
     pub limit: JointLimit,
+    pub mimic: Option<JointMimic>,
 }
 
 #[derive(Debug, Default)]

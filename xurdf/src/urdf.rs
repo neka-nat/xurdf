@@ -122,6 +122,28 @@ fn parse_limit(node: roxmltree::Node) -> Result<JointLimit> {
     })
 }
 
+fn parse_joint_mimic(node: roxmltree::Node) -> Result<JointMimic> {
+    let joint = node
+        .attribute("joint")
+        .ok_or(anyhow::anyhow!("Failed to parse mimic joint name"))?
+        .to_owned();
+    let multiplier = node
+        .attribute("multiplier")
+        .unwrap_or("1")
+        .parse()
+        .context("Failed to parse mimic multiplier")?;
+    let offset = node
+        .attribute("offset")
+        .unwrap_or("0")
+        .parse()
+        .context("Failed to parse mimic offset")?;
+    Ok(JointMimic {
+        joint,
+        multiplier,
+        offset,
+    })
+}
+
 fn parse_geometry(node: roxmltree::Node) -> Result<Geometry> {
     for child in node.children() {
         match child.tag_name().name() {
@@ -304,6 +326,7 @@ fn parse_joint(node: roxmltree::Node) -> Result<Joint> {
     let mut jchild = None;
     let mut axis = Vector3::new(1.0, 0.0, 0.0);
     let mut limit = JointLimit::default();
+    let mut mimic = None;
     for child in node.children() {
         match child.tag_name().name() {
             "origin" => origin = parse_pose(child)?,
@@ -311,6 +334,7 @@ fn parse_joint(node: roxmltree::Node) -> Result<Joint> {
             "child" => jchild = child.attribute("link"),
             "axis" => axis = parse_pose(child)?.xyz,
             "limit" => limit = parse_limit(child)?,
+            "mimic" => mimic = Some(parse_joint_mimic(child)?),
             &_ => (),
         }
     }
@@ -322,6 +346,7 @@ fn parse_joint(node: roxmltree::Node) -> Result<Joint> {
         child: String::from(jchild.ok_or(anyhow::anyhow!("Failed to parse joint child"))?),
         axis: axis,
         limit: limit,
+        mimic: mimic,
     })
 }
 
@@ -414,6 +439,85 @@ mod tests {
 
         assert!(message.contains("failed to parse joint `bad_joint`"));
         assert!(message.contains("Failed to parse joint child"));
+    }
+
+    #[test]
+    fn parses_joint_mimic_and_defaults() {
+        let robot = parse_urdf_from_string(
+            r#"
+            <robot name="mimic">
+              <link name="base"/>
+              <link name="source_link"/>
+              <link name="explicit_link"/>
+              <link name="default_link"/>
+              <joint name="source_joint" type="revolute">
+                <parent link="base"/>
+                <child link="source_link"/>
+              </joint>
+              <joint name="explicit_mimic_joint" type="revolute">
+                <parent link="source_link"/>
+                <child link="explicit_link"/>
+                <mimic joint="source_joint" multiplier="-2.5" offset="0.125"/>
+              </joint>
+              <joint name="default_mimic_joint" type="revolute">
+                <parent link="explicit_link"/>
+                <child link="default_link"/>
+                <mimic joint="source_joint"/>
+              </joint>
+            </robot>
+            "#,
+        )
+        .unwrap();
+
+        assert!(robot.joints[0].mimic.is_none());
+        let explicit = robot.joints[1].mimic.as_ref().unwrap();
+        assert_eq!(explicit.joint, "source_joint");
+        assert_eq!(explicit.multiplier, -2.5);
+        assert_eq!(explicit.offset, 0.125);
+        let default = robot.joints[2].mimic.as_ref().unwrap();
+        assert_eq!(default.joint, "source_joint");
+        assert_eq!(default.multiplier, 1.0);
+        assert_eq!(default.offset, 0.0);
+    }
+
+    #[test]
+    fn invalid_joint_mimic_returns_error() {
+        let err = parse_urdf_from_string(
+            r#"
+            <robot name="invalid_mimic">
+              <link name="parent"/>
+              <link name="child"/>
+              <joint name="bad_mimic_joint" type="revolute">
+                <parent link="parent"/>
+                <child link="child"/>
+                <mimic multiplier="invalid"/>
+              </joint>
+            </robot>
+            "#,
+        )
+        .unwrap_err();
+        let message = format!("{:#}", err);
+
+        assert!(message.contains("failed to parse joint `bad_mimic_joint`"));
+        assert!(message.contains("Failed to parse mimic joint name"));
+    }
+
+    #[test]
+    fn invalid_joint_mimic_numbers_return_errors() {
+        for (xml, expected) in [
+            (
+                r#"<mimic joint="source_joint" multiplier="invalid"/>"#,
+                "Failed to parse mimic multiplier",
+            ),
+            (
+                r#"<mimic joint="source_joint" offset="invalid"/>"#,
+                "Failed to parse mimic offset",
+            ),
+        ] {
+            let document = roxmltree::Document::parse(xml).unwrap();
+            let error = parse_joint_mimic(document.root_element()).unwrap_err();
+            assert!(format!("{:#}", error).contains(expected));
+        }
     }
 
     #[test]

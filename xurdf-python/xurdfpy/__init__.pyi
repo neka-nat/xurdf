@@ -83,6 +83,12 @@ class JointLimit:
     velocity: float
     def __repr__(self) -> str: ...
 
+class JointMimic:
+    joint: str
+    multiplier: float
+    offset: float
+    def __repr__(self) -> str: ...
+
 class Joint:
     name: str
     joint_type: str
@@ -91,6 +97,7 @@ class Joint:
     child: str
     axis: Vector3
     limit: JointLimit
+    mimic: Optional[JointMimic]
     def __repr__(self) -> str: ...
 
 class Robot:

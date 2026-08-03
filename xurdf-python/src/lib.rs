@@ -285,6 +285,27 @@ impl JointLimit {
 
 #[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
+struct JointMimic {
+    #[pyo3(get, set)]
+    joint: String,
+    #[pyo3(get, set)]
+    multiplier: f64,
+    #[pyo3(get, set)]
+    offset: f64,
+}
+
+#[pymethods]
+impl JointMimic {
+    fn __repr__(&self) -> String {
+        format!(
+            "JointMimic(joint: {:?}, multiplier: {:?}, offset: {:?})",
+            self.joint, self.multiplier, self.offset
+        )
+    }
+}
+
+#[pyclass(from_py_object)]
+#[derive(Clone, Debug)]
 struct Joint {
     #[pyo3(get, set)]
     name: String,
@@ -300,13 +321,15 @@ struct Joint {
     axis: [f64; 3],
     #[pyo3(get, set)]
     limit: JointLimit,
+    #[pyo3(get, set)]
+    mimic: Option<JointMimic>,
 }
 
 #[pymethods]
 impl Joint {
     fn __repr__(&self) -> String {
-        format!("Joint(name: {:?}, joint_type: {:?}, origin: {:?}, parent: {:?}, child: {:?}, axis: {:?}, limit: {:?})",
-                self.name, self.joint_type, self.origin, self.parent, self.child, self.axis, self.limit)
+        format!("Joint(name: {:?}, joint_type: {:?}, origin: {:?}, parent: {:?}, child: {:?}, axis: {:?}, limit: {:?}, mimic: {:?})",
+                self.name, self.joint_type, self.origin, self.parent, self.child, self.axis, self.limit, self.mimic)
     }
 }
 
@@ -459,6 +482,11 @@ fn convert_robot(robot: xurdf::Robot) -> Robot {
                 effort: joint.limit.effort,
                 velocity: joint.limit.velocity,
             },
+            mimic: joint.mimic.as_ref().map(|mimic| JointMimic {
+                joint: mimic.joint.clone(),
+                multiplier: mimic.multiplier,
+                offset: mimic.offset,
+            }),
         })
         .collect();
     Robot {
@@ -715,6 +743,7 @@ fn xurdfpy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Collision>()?;
     m.add_class::<Visual>()?;
     m.add_class::<Link>()?;
+    m.add_class::<JointMimic>()?;
     m.add_class::<Joint>()?;
     m.add_class::<JointLimit>()?;
     m.add_class::<Robot>()?;
