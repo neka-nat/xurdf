@@ -1289,6 +1289,52 @@ mod tests {
     }
 
     #[test]
+    fn expands_string_concatenation_and_conditional_expression() {
+        let xml = r#"<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="t">
+  <xacro:property name="rt" value="fr3"/>
+  <link name="${'prefix_' + rt + '_link'}"/>
+  <xacro:property name="sc" value=""/>
+  <link name="${sc if sc != '' else rt + '_link8'}"/>
+</robot>"#;
+
+        let result = parse_xacro_from_string(xml).unwrap();
+
+        assert!(result.contains(r#"<link name="prefix_fr3_link" />"#));
+        assert!(result.contains(r#"<link name="fr3_link8" />"#));
+        assert!(!result.contains("${"));
+    }
+
+    #[test]
+    fn expands_double_quoted_string_expressions() {
+        let xml = r#"<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="t">
+  <xacro:property name="rt" value="fr3"/>
+  <link name='${"double_" + rt + "_link"}'/>
+  <xacro:property name="sc" value=""/>
+  <link name='${sc if sc != "" else rt + "_link8"}'/>
+  <link name='${"standalone"}'/>
+</robot>"#;
+
+        let result = parse_xacro_from_string(xml).unwrap();
+
+        assert!(result.contains(r#"<link name="double_fr3_link" />"#));
+        assert!(result.contains(r#"<link name="fr3_link8" />"#));
+        assert!(result.contains(r#"<link name="standalone" />"#));
+        assert!(!result.contains("${"));
+    }
+
+    #[test]
+    fn errors_on_unsupported_expression_instead_of_preserving_it() {
+        let xml = r#"<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:property name="rt" value="fr3"/>
+  <link name="${unsupported(rt)}"/>
+</robot>"#;
+
+        let error = parse_xacro_from_string(xml).unwrap_err().to_string();
+
+        assert!(error.contains("failed to evaluate xacro expression `${unsupported(rt)}`"));
+    }
+
+    #[test]
     fn expands_no_arg_macro_without_params_attribute() {
         let xml = format!(
             r#"<robot xmlns:xacro="{NS}">
@@ -1792,18 +1838,34 @@ mod tests {
         let xml = format!(
             r#"<robot xmlns:xacro="{NS}">
   <xacro:macro name="set_values" params="value">
-    <xacro:property name="local_only" value="hidden"/>
     <xacro:property name="exported" value="${{value}}" scope="parent"/>
   </xacro:macro>
   <xacro:set_values value="ok"/>
-  <link name="${{exported}}" local="${{local_only}}"/>
+  <link name="${{exported}}"/>
 </robot>"#
         );
 
         let result = parse_xacro_from_string(&xml).unwrap();
 
         assert!(result.contains(r#"name="ok""#));
-        assert!(result.contains(r#"local="${local_only}""#));
+    }
+
+    #[test]
+    fn macro_local_scope_is_undefined_in_caller() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}">
+  <xacro:macro name="set_value">
+    <xacro:property name="local_only" value="hidden"/>
+  </xacro:macro>
+  <xacro:set_value/>
+  <link name="${{local_only}}"/>
+</robot>"#
+        );
+
+        let error = parse_xacro_from_string(&xml).unwrap_err().to_string();
+
+        assert!(error.contains("failed to evaluate xacro expression `${local_only}`"));
+        assert!(error.contains("Undefined variable: local_only"));
     }
 
     #[test]
@@ -1899,6 +1961,33 @@ values:
         assert!(result.contains(r#"effort="150""#));
         assert!(result.contains(r#"lower="-3.141592653589793""#));
         assert!(result.contains(r#"offset="foo""#));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn loads_yaml_from_concatenated_find_path() {
+        let dir = temp_fixture_dir("load-yaml-concatenated-find");
+        let config_dir = dir.join("robots/fr3");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("joint_limits.yaml"), "upper: 2.9\n").unwrap();
+        let main = dir.join("main.xacro");
+        fs::write(
+            &main,
+            format!(
+                r#"<robot xmlns:xacro="{NS}">
+  <xacro:property name="robot_type" value="fr3"/>
+  <xacro:property name="joint_limits" value='${{xacro.load_yaml("$(find franka_description)/robots/" + robot_type + "/joint_limits.yaml")}}'/>
+  <link name="${{robot_type + '_link8'}}" upper="${{joint_limits.upper}}"/>
+</robot>"#
+            ),
+        )
+        .unwrap();
+        let options = XacroOptions::default().with_package_path("franka_description", dir.clone());
+
+        let result = parse_xacro_from_file_with_options(&main, options).unwrap();
+
+        assert!(result.contains(r#"name="fr3_link8""#));
+        assert!(result.contains(r#"upper="2.9""#));
         let _ = fs::remove_dir_all(dir);
     }
 

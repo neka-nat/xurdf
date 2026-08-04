@@ -143,11 +143,8 @@ where
                     resolve_extension,
                     resolve_value,
                 )?;
-                if let Some(value) = try_eval_expression(&expr_in, symbol_map, resolve_value)? {
-                    result.push(remove_quotation_marks(&value.raw_value()).to_owned());
-                } else {
-                    result.push(format!("${{{}}}", token.1));
-                }
+                let value = try_eval_expression(&expr_in, symbol_map, resolve_value)?;
+                result.push(remove_quotation_marks(&value.raw_value()).to_owned());
             }
             TokenType::Extension => {
                 let expr_in = try_eval_text_with_values(
@@ -177,9 +174,7 @@ where
     if let Some(expr) = single_expression(s) {
         let expr_in =
             try_eval_text_with_values(&expr, symbol_map, resolve_extension, resolve_value)?;
-        if let Some(value) = try_eval_expression(&expr_in, symbol_map, resolve_value)? {
-            return Ok(value);
-        }
+        return try_eval_expression(&expr_in, symbol_map, resolve_value);
     }
 
     let value = try_eval_text_with_values(s, symbol_map, resolve_extension, resolve_value)?;
@@ -208,9 +203,7 @@ where
     if let Some(expr) = single_expression(s) {
         let expr_in =
             try_eval_text_with_values(&expr, symbol_map, resolve_extension, resolve_value)?;
-        if let Some(value) = try_eval_expression(&expr_in, symbol_map, resolve_value)? {
-            return Ok(value.is_truthy());
-        }
+        return Ok(try_eval_expression(&expr_in, symbol_map, resolve_value)?.is_truthy());
     }
 
     let res_text = try_eval_text_with_values(s, symbol_map, resolve_extension, resolve_value)?;
@@ -288,22 +281,28 @@ fn try_eval_expression<G>(
     expr: &str,
     symbol_map: &HashMap<String, XacroValue>,
     resolve_value: &G,
-) -> Result<Option<XacroValue>>
+) -> Result<XacroValue>
 where
     G: Fn(&str) -> Result<Option<XacroValue>>,
 {
     if let Some(value) = resolve_value(expr)? {
-        return Ok(Some(value));
+        return Ok(value);
     }
     if let Some(value) = lookup_path_expression(expr, symbol_map) {
-        return Ok(Some(value));
+        return Ok(value);
     }
 
     let interp = Interpreter::new();
-    match interp.eval_with_context(expr, &eval_context(symbol_map)) {
-        Ok(value) => Ok(Some(xacro_value_from_eval(value))),
-        Err(_) => Ok(None),
-    }
+    let value = interp
+        .eval_with_context(expr, &eval_context(symbol_map))
+        .map_err(|error| {
+            anyhow!(
+                "failed to evaluate xacro expression `${{{}}}`: {}",
+                expr,
+                error
+            )
+        })?;
+    Ok(xacro_value_from_eval(value))
 }
 
 fn xacro_value_from_eval(value: Value) -> XacroValue {
@@ -480,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn evaluates_builtin_pi_and_preserves_unresolved_expr_once() {
+    fn evaluates_builtin_pi_and_errors_on_unresolved_expression() {
         use super::*;
         let context = HashMap::new();
 
@@ -493,14 +492,16 @@ mod tests {
         .unwrap();
         assert_eq!(result, "0 3.141592653589793 -1.5707963267948966");
 
-        let result = try_eval_text_with_values(
+        let error = try_eval_text_with_values(
             "prefix ${missing}",
             &context,
             &|_| Ok(String::new()),
             &|_| Ok(None),
         )
-        .unwrap();
-        assert_eq!(result, "prefix ${missing}");
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("failed to evaluate xacro expression `${missing}`"));
+        assert!(error.contains("Undefined variable: missing"));
     }
 
     #[test]
