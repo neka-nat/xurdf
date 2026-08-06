@@ -320,7 +320,7 @@ struct Joint {
     #[pyo3(get, set)]
     axis: [f64; 3],
     #[pyo3(get, set)]
-    limit: JointLimit,
+    limit: Option<JointLimit>,
     #[pyo3(get, set)]
     mimic: Option<JointMimic>,
 }
@@ -476,12 +476,12 @@ fn convert_robot(robot: xurdf::Robot) -> Robot {
             parent: joint.parent.clone(),
             child: joint.child.clone(),
             axis: joint.axis.into(),
-            limit: JointLimit {
-                lower: joint.limit.lower,
-                upper: joint.limit.upper,
-                effort: joint.limit.effort,
-                velocity: joint.limit.velocity,
-            },
+            limit: joint.limit.as_ref().map(|limit| JointLimit {
+                lower: limit.lower,
+                upper: limit.upper,
+                effort: limit.effort,
+                velocity: limit.velocity,
+            }),
             mimic: joint.mimic.as_ref().map(|mimic| JointMimic {
                 joint: mimic.joint.clone(),
                 multiplier: mimic.multiplier,

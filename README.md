@@ -34,6 +34,10 @@ Joint mimic declarations are available through `joint.mimic`. The referenced
 joint position is mapped as `multiplier * source_position + offset`; omitted
 `multiplier` and `offset` attributes default to `1.0` and `0.0`.
 
+`joint.limit` is `None` when the URDF has no `<limit>` element. When the element
+is present, omitted numeric attributes, including `effort` and `velocity`,
+default to `0.0`.
+
 To parse a Xacro file, use `parse_xacro_file`. It returns the expanded XML as a
 string.
 

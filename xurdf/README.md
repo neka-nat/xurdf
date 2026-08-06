@@ -13,3 +13,7 @@ pub fn main() {
     println!("{:#?}", urdf);
 }
 ```
+
+`Joint::limit` is `None` when the URDF has no `<limit>` element. When the
+element is present, omitted numeric attributes, including `effort` and
+`velocity`, default to `0.0`.

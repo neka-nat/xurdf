@@ -96,7 +96,7 @@ class Joint:
     parent: str
     child: str
     axis: Vector3
-    limit: JointLimit
+    limit: Optional[JointLimit]
     mimic: Optional[JointMimic]
     def __repr__(self) -> str: ...
 

@@ -110,7 +110,7 @@ pub struct Joint {
     pub parent: String,
     pub child: String,
     pub axis: Vector3<f64>,
-    pub limit: JointLimit,
+    pub limit: Option<JointLimit>,
     pub mimic: Option<JointMimic>,
 }
 

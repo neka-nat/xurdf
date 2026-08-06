@@ -108,12 +108,14 @@ fn parse_limit(node: roxmltree::Node) -> Result<JointLimit> {
     let upper = node.attribute("upper").unwrap_or("0").parse()?;
     let effort = node
         .attribute("effort")
-        .ok_or(anyhow::anyhow!("Failed to parse limit effort"))?
-        .parse()?;
+        .map(str::parse)
+        .transpose()?
+        .unwrap_or(0.0);
     let velocity = node
         .attribute("velocity")
-        .ok_or(anyhow::anyhow!("Failed to parse limit velocity"))?
-        .parse()?;
+        .map(str::parse)
+        .transpose()?
+        .unwrap_or(0.0);
     Ok(JointLimit {
         lower: lower,
         upper: upper,
@@ -325,7 +327,7 @@ fn parse_joint(node: roxmltree::Node) -> Result<Joint> {
     let mut jparent = None;
     let mut jchild = None;
     let mut axis = Vector3::new(1.0, 0.0, 0.0);
-    let mut limit = JointLimit::default();
+    let mut limit = None;
     let mut mimic = None;
     for child in node.children() {
         match child.tag_name().name() {
@@ -333,7 +335,7 @@ fn parse_joint(node: roxmltree::Node) -> Result<Joint> {
             "parent" => jparent = child.attribute("link"),
             "child" => jchild = child.attribute("link"),
             "axis" => axis = parse_pose(child)?.xyz,
-            "limit" => limit = parse_limit(child)?,
+            "limit" => limit = Some(parse_limit(child)?),
             "mimic" => mimic = Some(parse_joint_mimic(child)?),
             &_ => (),
         }
@@ -395,11 +397,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_limit() {
-        let limit_without_optional_fields =
-            roxmltree::Document::parse(r#"<limit effort="2" velocity="3"/>"#);
-        let limit = parse_limit(limit_without_optional_fields.unwrap().root_element());
-        assert!(limit.is_ok());
+    fn parse_limit_defaults_missing_attributes_to_zero() {
+        let document = roxmltree::Document::parse(r#"<limit lower="-1" upper="2"/>"#).unwrap();
+        let limit = parse_limit(document.root_element()).unwrap();
+
+        assert_eq!(limit.lower, -1.0);
+        assert_eq!(limit.upper, 2.0);
+        assert_eq!(limit.effort, 0.0);
+        assert_eq!(limit.velocity, 0.0);
+    }
+
+    #[test]
+    fn invalid_limit_numbers_return_errors() {
+        for xml in [
+            r#"<limit effort="invalid"/>"#,
+            r#"<limit velocity="invalid"/>"#,
+        ] {
+            let document = roxmltree::Document::parse(xml).unwrap();
+            assert!(parse_limit(document.root_element()).is_err());
+        }
+    }
+
+    #[test]
+    fn distinguishes_missing_limit_from_explicit_zero_limit() {
+        let robot = parse_urdf_from_string(
+            r#"
+            <robot name="limits">
+              <link name="base"/>
+              <link name="unlimited_link"/>
+              <link name="locked_link"/>
+              <joint name="unlimited" type="revolute">
+                <parent link="base"/>
+                <child link="unlimited_link"/>
+              </joint>
+              <joint name="locked" type="revolute">
+                <parent link="unlimited_link"/>
+                <child link="locked_link"/>
+                <limit lower="0" upper="0"/>
+              </joint>
+            </robot>
+            "#,
+        )
+        .unwrap();
+
+        assert!(robot.joints[0].limit.is_none());
+        let limit = robot.joints[1].limit.as_ref().unwrap();
+        assert_eq!(limit.lower, 0.0);
+        assert_eq!(limit.upper, 0.0);
+        assert_eq!(limit.effort, 0.0);
+        assert_eq!(limit.velocity, 0.0);
     }
 
     #[test]
