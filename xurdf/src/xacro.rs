@@ -891,11 +891,24 @@ fn parse_yaml_scalar(value: &str) -> Result<XacroValue> {
         return Ok(XacroValue::Number(parse_yaml_number(rest.trim())?));
     }
     if value.starts_with('[') && value.ends_with(']') {
-        return split_inline_yaml_list(&value[1..value.len() - 1])
+        return split_inline_yaml_values(&value[1..value.len() - 1])
             .into_iter()
             .map(|item| parse_yaml_scalar(&item))
             .collect::<Result<Vec<_>>>()
             .map(XacroValue::List);
+    }
+    if value.starts_with('{') && value.ends_with('}') {
+        let mut map = BTreeMap::new();
+        for entry in split_inline_yaml_values(&value[1..value.len() - 1]) {
+            let (key, value) = split_yaml_key_value(&entry)
+                .with_context(|| format!("invalid YAML flow mapping entry `{}`", entry))?;
+            let value = value
+                .map(parse_yaml_scalar)
+                .transpose()?
+                .unwrap_or(XacroValue::Null);
+            map.insert(strip_balanced_quotes(key.trim()).to_string(), value);
+        }
+        return Ok(XacroValue::Map(map));
     }
 
     let unquoted = strip_balanced_quotes(value);
@@ -982,12 +995,13 @@ fn split_yaml_key_value(line: &str) -> Option<(&str, Option<&str>)> {
     None
 }
 
-fn split_inline_yaml_list(value: &str) -> Vec<String> {
+fn split_inline_yaml_values(value: &str) -> Vec<String> {
     let mut values = Vec::new();
     let mut start = 0usize;
     let mut quote = None;
     let mut escape = false;
     let mut bracket_depth = 0usize;
+    let mut brace_depth = 0usize;
 
     for (idx, ch) in value.char_indices() {
         if escape {
@@ -1008,7 +1022,9 @@ fn split_inline_yaml_list(value: &str) -> Vec<String> {
             '\'' | '"' => quote = Some(ch),
             '[' => bracket_depth += 1,
             ']' => bracket_depth = bracket_depth.saturating_sub(1),
-            ',' if bracket_depth == 0 => {
+            '{' => brace_depth += 1,
+            '}' => brace_depth = brace_depth.saturating_sub(1),
+            ',' if bracket_depth == 0 && brace_depth == 0 => {
                 let item = value[start..idx].trim();
                 if !item.is_empty() {
                     values.push(item.to_string());
@@ -1961,6 +1977,37 @@ values:
         assert!(result.contains(r#"effort="150""#));
         assert!(result.contains(r#"lower="-3.141592653589793""#));
         assert!(result.contains(r#"offset="foo""#));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn loads_flow_style_yaml_mapping() {
+        let dir = temp_fixture_dir("load-flow-style-yaml-mapping");
+        fs::write(
+            dir.join("config.yaml"),
+            r#"
+body: {mass: 0.78, center: [0.0, 0.1, 0.2], inertia: {ixx: 1.0, ixy: 0.01}, label: "base, body"}
+"#,
+        )
+        .unwrap();
+        let main = dir.join("main.xacro");
+        fs::write(
+            &main,
+            format!(
+                r#"<robot xmlns:xacro="{NS}">
+  <xacro:property name="cfg" value="${{xacro.load_yaml('config.yaml')}}"/>
+  <link name="${{cfg.body.label}}" mass="${{cfg.body.mass}}" center_y="${{cfg.body.center[1]}}" ixy="${{cfg.body.inertia.ixy}}"/>
+</robot>"#
+            ),
+        )
+        .unwrap();
+
+        let result = parse_xacro_from_file(&main).unwrap();
+
+        assert!(result.contains(r#"name="base, body""#));
+        assert!(result.contains(r#"mass="0.78""#));
+        assert!(result.contains(r#"center_y="0.1""#));
+        assert!(result.contains(r#"ixy="0.01""#));
         let _ = fs::remove_dir_all(dir);
     }
 
