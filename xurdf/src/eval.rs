@@ -64,7 +64,10 @@ impl XacroValue {
 
     fn to_eval_value(&self) -> Value {
         match self {
-            Self::Null => Value::StringLit(String::new()),
+            // Null is xacro's `None`: keep it as None so `${arg == None}` (the
+            // optional-macro-parameter idiom) compares as Python does. Flattening
+            // it to an empty string here made that comparison silently false.
+            Self::Null => Value::None,
             Self::Bool(value) => Value::Number(if *value { 1.0 } else { 0.0 }),
             Self::Number(value) => Value::Number(*value),
             Self::String(value) => Value::StringLit(value.clone()),
@@ -307,6 +310,9 @@ where
 
 fn xacro_value_from_eval(value: Value) -> XacroValue {
     match value {
+        // Without this arm None falls into the catch-all below and becomes the
+        // *string* "None", which then never compares equal to None again.
+        Value::None => XacroValue::Null,
         Value::Number(value) => XacroValue::Number(value),
         Value::StringLit(value) | Value::Var(value) => XacroValue::String(value),
         Value::List(values) | Value::Tuple(values) | Value::Set(values) => {

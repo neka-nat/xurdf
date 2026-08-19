@@ -1305,6 +1305,58 @@ mod tests {
     }
 
     #[test]
+    fn expands_optional_macro_parameter_defaulting_to_none() {
+        // The ROS 2 "optional macro parameter" idiom: the default is None and the
+        // body branches on `== None`. Robotnik's robotnik_sensors uses it in every
+        // sensor macro, so getting this wrong blocks a whole vendor.
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}">
+  <xacro:macro name="sensor" params="frame node_namespace:=${{None}}">
+    <xacro:if value="${{node_namespace == None}}">
+      <link name="${{frame}}_no_ns"/>
+    </xacro:if>
+    <xacro:unless value="${{node_namespace == None}}">
+      <link name="${{frame}}_${{node_namespace}}"/>
+    </xacro:unless>
+  </xacro:macro>
+  <xacro:sensor frame="imu"/>
+  <xacro:sensor frame="laser" node_namespace="robot"/>
+</robot>"#
+        );
+
+        let result = parse_xacro_from_string(&xml).unwrap();
+
+        // default (None) takes the `if` branch, an explicit value takes the `unless`
+        assert!(result.contains(r#"<link name="imu_no_ns" />"#));
+        assert!(result.contains(r#"<link name="laser_robot" />"#));
+        assert!(!result.contains("laser_no_ns"));
+        assert!(!result.contains("imu_robot"));
+    }
+
+    #[test]
+    fn expands_none_property_in_conditions_and_text() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}">
+  <xacro:property name="ns" value="${{None}}"/>
+  <xacro:if value="${{ns == None}}">
+    <link name="none_is_none"/>
+  </xacro:if>
+  <xacro:if value="${{ns}}">
+    <link name="none_is_truthy"/>
+  </xacro:if>
+  <link name="${{'x' if ns == None else 'y'}}"/>
+</robot>"#
+        );
+
+        let result = parse_xacro_from_string(&xml).unwrap();
+
+        assert!(result.contains(r#"<link name="none_is_none" />"#));
+        // bool(None) is False, so the second branch must not fire
+        assert!(!result.contains("none_is_truthy"));
+        assert!(result.contains(r#"<link name="x" />"#));
+    }
+
+    #[test]
     fn expands_string_concatenation_and_conditional_expression() {
         let xml = r#"<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="t">
   <xacro:property name="rt" value="fr3"/>
