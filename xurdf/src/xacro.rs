@@ -132,6 +132,11 @@ pub struct XacroProcessor {
     global_property_exports: HashMap<String, XacroValue>,
     parent_block_exports: HashMap<String, BlockValue>,
     global_block_exports: HashMap<String, BlockValue>,
+    // python-xacro evaluates property values lazily, so a failing value is an
+    // error only when the property is actually referenced. We evaluate eagerly;
+    // to match, a failing definition is remembered here (name -> cause) instead
+    // of raised, and surfaces if an expression later hits the missing name.
+    deferred_property_errors: HashMap<String, String>,
 }
 
 impl Default for XacroProcessor {
@@ -154,6 +159,7 @@ impl XacroProcessor {
             global_property_exports: HashMap::new(),
             parent_block_exports: HashMap::new(),
             global_block_exports: HashMap::new(),
+            deferred_property_errors: HashMap::new(),
         }
     }
 
@@ -187,6 +193,7 @@ impl XacroProcessor {
         self.global_property_exports.clear();
         self.parent_block_exports.clear();
         self.global_block_exports.clear();
+        self.deferred_property_errors.clear();
     }
 
     fn process_file_inner(&mut self, path: &Path) -> Result<String> {
@@ -313,12 +320,16 @@ impl XacroProcessor {
         }
 
         if let Some(value) = value {
-            let value = self.eval_value(value)?;
-            self.set_property(name, value, scope);
+            match self.eval_value(value) {
+                Ok(value) => self.set_property(name, value, scope),
+                Err(err) => self.defer_property_error(name, err),
+            }
         } else if let Some(default) = default {
             if !self.context.properties.contains_key(&name) {
-                let value = self.eval_value(default)?;
-                self.set_property(name, value, scope);
+                match self.eval_value(default) {
+                    Ok(value) => self.set_property(name, value, scope),
+                    Err(err) => self.defer_property_error(name, err),
+                }
             }
         } else {
             let name = format!("**{}", name);
@@ -424,6 +435,7 @@ impl XacroProcessor {
             global_property_exports: HashMap::new(),
             parent_block_exports: HashMap::new(),
             global_block_exports: HashMap::new(),
+            deferred_property_errors: self.deferred_property_errors.clone(),
         };
 
         for param in this_macro
@@ -500,7 +512,17 @@ impl XacroProcessor {
         }
     }
 
+    /// Remember a property whose value failed to evaluate instead of raising.
+    /// The name stays undefined, so referencing it later fails with the cause
+    /// attached (see `decorate_deferred`); an unused one is harmless, matching
+    /// python-xacro's lazy evaluation.
+    fn defer_property_error(&mut self, name: String, err: anyhow::Error) {
+        self.context.properties.remove(&name);
+        self.deferred_property_errors.insert(name, format!("{:#}", err));
+    }
+
     fn set_property(&mut self, name: String, value: XacroValue, scope: PropertyScope) {
+        self.deferred_property_errors.remove(&name);
         self.context.properties.insert(name.clone(), value.clone());
         match scope {
             PropertyScope::Local => {}
@@ -578,6 +600,21 @@ impl XacroProcessor {
         Ok(expanded)
     }
 
+    /// If an expression failed because it referenced a property whose own
+    /// value failed to evaluate (`defer_property_error`), attach that cause.
+    fn decorate_deferred(&self, err: anyhow::Error) -> anyhow::Error {
+        let message = format!("{:#}", err);
+        for (name, cause) in &self.deferred_property_errors {
+            if message.contains(&format!("Undefined variable: {}", name)) {
+                return err.context(format!(
+                    "property `{}` is undefined because its value failed to evaluate: {}",
+                    name, cause
+                ));
+            }
+        }
+        err
+    }
+
     fn eval_text(&self, text: &str) -> Result<String> {
         try_eval_text_with_values(
             text,
@@ -585,6 +622,7 @@ impl XacroProcessor {
             &|expr| self.resolve_substitution(expr),
             &|expr| self.resolve_value_expression(expr),
         )
+        .map_err(|err| self.decorate_deferred(err))
     }
 
     fn eval_value(&self, text: &str) -> Result<XacroValue> {
@@ -594,6 +632,7 @@ impl XacroProcessor {
             &|expr| self.resolve_substitution(expr),
             &|expr| self.resolve_value_expression(expr),
         )
+        .map_err(|err| self.decorate_deferred(err))
     }
 
     fn eval_bool(&self, text: &str) -> Result<bool> {
@@ -603,6 +642,7 @@ impl XacroProcessor {
             &|expr| self.resolve_substitution(expr),
             &|expr| self.resolve_value_expression(expr),
         )
+        .map_err(|err| self.decorate_deferred(err))
     }
 
     fn resolve_value_expression(&self, expr: &str) -> Result<Option<XacroValue>> {
@@ -1354,6 +1394,58 @@ mod tests {
         // bool(None) is False, so the second branch must not fire
         assert!(!result.contains("none_is_truthy"));
         assert!(result.contains(r#"<link name="x" />"#));
+    }
+
+    // python-xacro evaluates property values lazily: a value that cannot be
+    // evaluated is an error only when the property is used. Elite Robots'
+    // official CS driver relies on this — eli_cs_robot_description declares
+    // `${config['offsets']}` from a YAML that has no `offsets` key, and never
+    // uses the property.
+    #[test]
+    fn unused_property_with_failing_value_is_skipped() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}" name="t">
+  <xacro:property name="cfg" value="${{dict(a=1)}}"/>
+  <xacro:property name="broken" value="${{cfg['missing']}}"/>
+  <link name="l${{cfg['a']}}"/>
+</robot>"#
+        );
+
+        let result = parse_xacro_from_string(&xml).unwrap();
+
+        assert!(result.contains(r#"<link name="l1" />"#));
+    }
+
+    #[test]
+    fn using_a_property_with_failing_value_reports_the_original_cause() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}" name="t">
+  <xacro:property name="cfg" value="${{dict(a=1)}}"/>
+  <xacro:property name="broken" value="${{cfg['missing']}}"/>
+  <link name="${{broken}}"/>
+</robot>"#
+        );
+
+        let err = parse_xacro_from_string(&xml).unwrap_err();
+        let message = format!("{:#}", err);
+
+        assert!(message.contains("broken"), "message: {message}");
+        assert!(message.contains("missing"), "message: {message}");
+    }
+
+    #[test]
+    fn redefining_a_failed_property_recovers_it() {
+        let xml = format!(
+            r#"<robot xmlns:xacro="{NS}" name="t">
+  <xacro:property name="broken" value="${{nonexistent_map['k']}}"/>
+  <xacro:property name="broken" value="ok"/>
+  <link name="${{broken}}"/>
+</robot>"#
+        );
+
+        let result = parse_xacro_from_string(&xml).unwrap();
+
+        assert!(result.contains(r#"<link name="ok" />"#));
     }
 
     #[test]
