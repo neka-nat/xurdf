@@ -123,11 +123,22 @@ impl XacroOptions {
     }
 }
 
+/// One file on the include stack: the path as it was named — relative
+/// includes resolve beside it — and its canonical form, which cycle
+/// detection compares. They differ when the entry file is a symlink (a
+/// Hugging Face cache blob, say): its neighbours live beside the link,
+/// not beside the target.
+#[derive(Debug, Clone)]
+struct IncludeFrame {
+    logical: PathBuf,
+    canonical: PathBuf,
+}
+
 #[derive(Debug)]
 pub struct XacroProcessor {
     context: XacroContext,
     options: XacroOptions,
-    include_stack: Vec<PathBuf>,
+    include_stack: Vec<IncludeFrame>,
     parent_property_exports: HashMap<String, XacroValue>,
     global_property_exports: HashMap<String, XacroValue>,
     parent_block_exports: HashMap<String, BlockValue>,
@@ -164,7 +175,9 @@ impl XacroProcessor {
     }
 
     pub fn current_file(&self) -> Option<&Path> {
-        self.include_stack.last().map(PathBuf::as_path)
+        self.include_stack
+            .last()
+            .map(|frame| frame.logical.as_path())
     }
 
     pub fn current_dir(&self) -> Option<&Path> {
@@ -204,8 +217,29 @@ impl XacroProcessor {
     fn process_file_to_element_inner(&mut self, path: &Path) -> Result<Element> {
         let canonical_path = std::fs::canonicalize(path)
             .with_context(|| format!("failed to resolve xacro file `{}`", path.display()))?;
+        // Relative includes resolve beside the file as it was named: a
+        // symlinked entry file keeps its own directory (canonicalized, so
+        // `$(cwd)` and package discovery see an absolute path), not the
+        // directory its target happens to live in.
+        let logical_path = match (path.parent(), path.file_name()) {
+            (Some(dir), Some(name)) => {
+                let dir = if dir.as_os_str().is_empty() {
+                    Path::new(".")
+                } else {
+                    dir
+                };
+                std::fs::canonicalize(dir)
+                    .unwrap_or_else(|_| dir.to_path_buf())
+                    .join(name)
+            }
+            _ => canonical_path.clone(),
+        };
 
-        if self.include_stack.iter().any(|p| p == &canonical_path) {
+        if self
+            .include_stack
+            .iter()
+            .any(|frame| frame.canonical == canonical_path)
+        {
             bail!(
                 "cyclic xacro include detected: {}",
                 format_include_stack(&self.include_stack, &canonical_path)
@@ -215,10 +249,13 @@ impl XacroProcessor {
         let xml = std::fs::read_to_string(&canonical_path)
             .with_context(|| format!("failed to read xacro file `{}`", canonical_path.display()))?;
 
-        self.include_stack.push(canonical_path.clone());
+        self.include_stack.push(IncludeFrame {
+            logical: logical_path.clone(),
+            canonical: canonical_path,
+        });
         let result = self
             .process_source_element(&xml)
-            .with_context(|| format!("while processing xacro file `{}`", canonical_path.display()));
+            .with_context(|| format!("while processing xacro file `{}`", logical_path.display()));
         self.include_stack.pop();
         result
     }
@@ -1289,10 +1326,10 @@ fn write_element_to_string(elem: &Element) -> Result<String> {
     String::from_utf8(w).map_err(|e| e.into())
 }
 
-fn format_include_stack(stack: &[PathBuf], repeated: &Path) -> String {
+fn format_include_stack(stack: &[IncludeFrame], repeated: &Path) -> String {
     let mut paths = stack
         .iter()
-        .map(|path| path.display().to_string())
+        .map(|frame| frame.canonical.display().to_string())
         .collect::<Vec<_>>();
     paths.push(repeated.display().to_string());
     paths.join(" -> ")
@@ -2241,5 +2278,60 @@ feature:
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+}
+
+#[cfg(all(test, unix))]
+mod symlink_tests {
+    use super::*;
+    use std::fs;
+
+    const NS: &str = "http://www.ros.org/wiki/xacro";
+
+    /// A Hugging Face cache lays a snapshot tree of symlinks over a flat
+    /// `blobs/` directory. An entry file reached through such a link must
+    /// resolve its relative includes beside the link, where its neighbours
+    /// are — not beside the blob, where nothing is.
+    #[test]
+    fn relative_includes_resolve_beside_a_symlinked_entry_file() {
+        let dir =
+            std::env::temp_dir().join(format!("xurdf-symlink-include-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let blobs = dir.join("blobs");
+        let snapshot = dir.join("snapshot");
+        fs::create_dir_all(&blobs).unwrap();
+        fs::create_dir_all(snapshot.join("pack/visual")).unwrap();
+        fs::create_dir_all(snapshot.join("common/visual")).unwrap();
+        fs::write(
+            blobs.join("aaaa"),
+            format!(
+                r#"<robot xmlns:xacro="{NS}" name="pack">
+  <xacro:include filename="../../common/visual/primitives.xacro"/>
+  <xacro:box_link name="body"/>
+</robot>"#
+            ),
+        )
+        .unwrap();
+        fs::write(
+            blobs.join("bbbb"),
+            format!(
+                r#"<robot xmlns:xacro="{NS}"><xacro:macro name="box_link" params="name"><link name="${{name}}"/></xacro:macro></robot>"#
+            ),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(
+            blobs.join("aaaa"),
+            snapshot.join("pack/visual/body.urdf.xacro"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(
+            blobs.join("bbbb"),
+            snapshot.join("common/visual/primitives.xacro"),
+        )
+        .unwrap();
+
+        let result = parse_xacro_from_file(snapshot.join("pack/visual/body.urdf.xacro")).unwrap();
+        assert!(result.contains(r#"<link name="body" />"#), "{result}");
+        let _ = fs::remove_dir_all(dir);
     }
 }
